@@ -1,462 +1,191 @@
-# 🚀 Travel Assistant - AI-Powered Travel Planning with MCP
+# Travel Booking Agent
 
-[![Python](https://img.shields.io/badge/Python-3.13+-blue.svg)](https://www.python.org/)
-[![FastMCP](https://img.shields.io/badge/FastMCP-Latest-green.svg)](https://github.com/anthropics/mcp)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)]()
+A Python travel-planning project with a Flask web interface and four
+Model Context Protocol (MCP) servers. Search flights, hotels, and events
+through SerpAPI, or retrieve weather forecasts from Open-Meteo.
 
-> An intelligent travel planning application powered by **Model Context Protocol (MCP)** microservices. Search flights, hotels, events, and get weather forecasts - all integrated with Claude AI.
+Search results are informational. The application does not book or purchase
+travel products.
 
-## ✨ Features
+## Features
 
-### 🎯 Core Capabilities
-- **✈️ Flight Search** - Real-time flight data from Google Flights API via SerpAPI
-- **🏨 Hotel Search** - Comprehensive hotel search with ratings, prices, and amenities
-- **🎉 Events Discovery** - Find cultural events, festivals, and concerts worldwide
-- **🌦️ Weather Forecast** - 15-day weather predictions for travel planning
-- **🤖 Claude AI Integration** - Intelligent travel assistant powered by MCP
+- Flight search with passenger, cabin, route, and date validation.
+- Hotel search with price, rating, and amenity filters.
+- Event discovery with date filtering.
+- Weather lookup for forecasts up to 15 days ahead and historical dates.
+- Web search forms backed by live provider APIs, with readable errors.
+- MCP tools, resources, and planning prompts for compatible MCP clients.
+- Bounded HTTP timeouts, retries for transient GET failures, and local result
+  storage for subsequent filtering.
 
-### 🏗️ Architecture Highlights
-- **4 Independent Microservices** - Flight, Hotel, Event, Weather servers run independently
-- **Model Context Protocol (MCP)** - Standard protocol for LLM integration
-- **FastMCP Framework** - Lightweight, efficient Python MCP implementation
-- **Scalable Design** - Each service on separate port (8001-8004) for easy scaling
-- **Claude Desktop Compatible** - Native integration with Claude Desktop app
+SerpAPI requires a user-provided key for flight, hotel, and event searches.
+Open-Meteo weather and geocoding do not require an API key.
 
-### 🌐 Multiple Interfaces
-- **Web UI** - Beautiful Flask-based web application
-- **Claude Desktop** - Native MCP integration for intelligent queries
-- **CLI Tools** - Command-line interface for automation
-- **API Endpoints** - RESTful API for third-party integration
+## Architecture
 
-## 🛠️ Technology Stack
+```text
+Browser ──> Flask REST API ──> SerpAPI (flights, hotels, events)
+                         └──> Open-Meteo (weather, geocoding)
 
-### Backend
-```
-• Python 3.13.7
-• FastMCP (Model Context Protocol)
-• Flask Web Framework
-• requests HTTP Client
+MCP client ──> flight / hotel / event / weather servers (stdio)
 ```
 
-### External APIs
-```
-• SerpAPI - Flights, Hotels, Events data
-• Open-Meteo - Weather & Geocoding (Free)
-• Google Flights/Hotels/Events Integration
-```
+The web app calls provider APIs directly. MCP servers are separate
+stdio-based integrations; they do not listen on ports. Each server can be
+configured as its own MCP client process.
 
-### Frontend
-```
-• HTML5 with Semantic markup
-• CSS3 with Flexbox/Grid & Animations
-• Vanilla JavaScript (No frameworks)
-• Responsive Mobile Design
-```
+## Tech stack
 
-### Deployment
-```
-• Docker & Docker Compose Ready
-• Multi-OS Support (Windows, macOS, Linux)
-• Cloud-agnostic Architecture
-```
+- Python 3.10+
+- Flask
+- MCP Python SDK (FastMCP)
+- Requests and python-dotenv
+- SerpAPI
+- Open-Meteo
+- HTML, CSS, and vanilla JavaScript
 
-## 📋 Project Structure
+## Setup
 
-```
-TravelAssistant-ranjit/
-├── servers/
-│   ├── flight_server/              # ✈️  Flight search microservice
-│   │   ├── flight_server.py        #     FastMCP server implementation
-│   │   └── __pycache__/
-│   ├── hotel_server/               # 🏨 Hotel search microservice
-│   │   ├── hotel_server.py         #     Hotel discovery & filtering
-│   │   └── __pycache__/
-│   ├── event_server/               # 🎉 Events microservice
-│   │   ├── event_server.py         #     Event & festival discovery
-│   │   └── __pycache__/
-│   └── weather_server/             # 🌦️  Weather microservice
-│       ├── weather_server.py       #     15-day forecasts
-│       └── __pycache__/
-├── templates/
-│   └── index.html                  # Main web application UI (HTML)
-├── static/
-│   ├── style.css                   # Styling (CSS3)
-│   └── script.js                   # Frontend interactivity (JavaScript)
-├── demo_app.py                     # Flask web server application
-├── utils.py                        # Utility functions & helpers
-├── .env                            # API keys & configuration (git-ignored)
-├── .env.example                    # Example environment template
-├── requirements.txt                # Python dependencies
-├── .gitignore                      # Git ignore rules
-├── README.md                       # This file
-├── LICENSE                         # MIT License
-└── docs/
-    ├── CLAUDE_DESKTOP_SETUP.md    # Claude Desktop integration guide
-    ├── DEMO_STEPS.md              # Detailed demo instructions
-    ├── MCP_SERVER_DETAILS.md      # MCP configuration details
-    ├── DEPLOYMENT_GUIDE.md        # Production deployment
-    └── TESTING.md                 # Testing procedures
-```
+1. Create and activate a virtual environment:
 
-## 🚀 Quick Start Guide
+   **Windows PowerShell**
 
-### Prerequisites
-- **Python 3.13+** (Download from python.org)
-- **pip** package manager
-- **Git** version control
+   ```powershell
+   py -3 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
 
-### Installation Steps
+   **macOS / Linux**
 
-#### 1. Clone Repository
-```bash
-git clone https://github.com/harsh-dandge/TravelAssistant.git
-cd TravelAssistant
+   ```sh
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+2. Install dependencies:
+
+   ```sh
+   python -m pip install -r requirements.txt
+   ```
+
+3. Create a local environment file and add your SerpAPI key:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+   Edit `.env` and set `SERPAPI_KEY`. Do not commit this file.
+
+4. Start the web interface:
+
+   ```sh
+   python demo_app.py
+   ```
+
+   Open <http://127.0.0.1:5000>. Weather search works without a SerpAPI key.
+   Searches involving SerpAPI return a configuration error until a key is set.
+
+## Usage
+
+Use the browser forms to search. The REST API can also be called directly:
+
+```sh
+curl -X POST http://127.0.0.1:5000/api/flights \
+  -H "Content-Type: application/json" \
+  -d '{"departure":"PNQ","arrival":"JAI","date":"2026-11-01","return_date":"2026-11-05","adults":1,"children":0}'
 ```
 
-#### 2. Create Virtual Environment
-```bash
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
+```sh
+curl -X POST http://127.0.0.1:5000/api/hotels \
+  -H "Content-Type: application/json" \
+  -d '{"location":"Jaipur","check_in":"2026-11-01","check_out":"2026-11-04","guests":2}'
 ```
 
-#### 3. Install Dependencies
-```bash
-pip install -r requirements.txt
+```sh
+curl -X POST http://127.0.0.1:5000/api/events \
+  -H "Content-Type: application/json" \
+  -d '{"event_type":"Concerts","location":"Jaipur"}'
 ```
 
-#### 4. Configure Environment
-```bash
-# Copy example environment file
-cp .env.example .env
-
-# Edit .env with your API key
-# Add your SERPAPI_KEY from https://serpapi.com
+```sh
+curl -X POST http://127.0.0.1:5000/api/weather \
+  -H "Content-Type: application/json" \
+  -d '{"location":"Jaipur"}'
 ```
 
-#### 5. Start Backend Servers (Open 4 terminals)
+Dates must be in `YYYY-MM-DD` format. Flight routes use airport or supported
+city codes. Search results can change and should be verified with the booking
+provider before making travel decisions.
 
-**Terminal 1 - Flight Server:**
-```bash
+### MCP servers
+
+Run a server as a stdio process from the repository root:
+
+```sh
 python servers/flight_server/flight_server.py
-```
-
-**Terminal 2 - Hotel Server:**
-```bash
 python servers/hotel_server/hotel_server.py
-```
-
-**Terminal 3 - Event Server:**
-```bash
 python servers/event_server/event_server.py
-```
-
-**Terminal 4 - Weather Server:**
-```bash
 python servers/weather_server/weather_server.py
 ```
 
-#### 6. Start Web Application
-```bash
-python demo_app.py
+Configure one process per server in your MCP client. Provide `SERPAPI_KEY`
+through that client's environment for the flight, hotel, and event servers.
+The weather server uses Open-Meteo and needs no key. See the server source for
+available MCP tools, resources, and prompts.
+
+## Environment variables
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `SERPAPI_KEY` | For SerpAPI searches | — | SerpAPI account key; never commit it. |
+| `REQUEST_TIMEOUT_SECONDS` | No | `15` | Positive HTTP timeout in seconds. |
+| `TRAVEL_DATA_DIR` | No | `.travel_data` | Directory for saved MCP search results. |
+| `FLASK_HOST` | No | `127.0.0.1` | Web server bind address. |
+| `FLASK_PORT` | No | `5000` | Web server port. |
+| `FLASK_DEBUG` | No | `false` | Enable Flask debug mode only for local development. |
+| `LOG_LEVEL` | No | `INFO` | Python logging level. |
+
+## Tests
+
+The automated suite uses the standard library and mocked provider responses;
+it does not make paid or external API requests.
+
+```sh
+python -m unittest discover -s tests -v
 ```
 
-**Access:** http://localhost:5000
+Live provider availability and credentials are not required to run the tests.
 
-## 💡 Usage Examples
+## Project structure
 
-### Web Interface
-1. Navigate to http://localhost:5000
-2. Click tabs (Flights, Hotels, Events, Weather)
-3. Enter search parameters
-4. Click Search/Get buttons
-5. View results
-
-### Claude Desktop Integration
-1. Download: https://claude.ai/download
-2. Configure MCP servers (see [CLAUDE_DESKTOP_SETUP.md](docs/CLAUDE_DESKTOP_SETUP.md))
-3. Open Claude Desktop
-4. Ask travel questions:
-
-```
-"Find flights from Pune to Jaipur for Feb 20-23"
-"Show me 5-star hotels in Delhi under ₹10,000/night"
-"What events are happening in Kerala next month?"
-"Plan a 3-day trip to Goa with flights, hotels, and weather"
+```text
+.
+├── database/                 # SQLite schema initialization
+├── servers/
+│   ├── event_server/         # Event MCP tools
+│   ├── flight_server/        # Flight MCP tools
+│   ├── hotel_server/         # Hotel MCP tools and filters
+│   └── weather_server/       # Weather and geocoding MCP tools
+├── static/                   # Web UI styles and JavaScript
+├── templates/                # Flask HTML template
+├── tests/                    # Offline unit and integration tests
+├── demo_app.py               # Flask web application
+├── utils.py                  # Shared validation, HTTP, and storage helpers
+├── requirements.txt
+└── .env.example
 ```
 
-Claude will automatically call your MCP servers!
+## Security and limitations
 
-## 📡 API Endpoints
+- Keep API keys in environment variables or a local `.env` file.
+- Search inputs and saved-search IDs are validated; HTTP calls use timeouts
+  and retry only transient GET failures.
+- The development web app has no authentication or CSRF protection. Keep it
+  bound to localhost; do not expose it directly to the public internet.
+- Flight, hotel, event, and weather content comes from third parties and may
+  be incomplete or stale. The thunderstorm estimate is a rough heuristic, not
+  an official warning.
 
-### Flight Server (Port 8001)
-```
-GET /flights
-  Params: from (City Code), to (City Code), date (YYYY-MM-DD)
-  Example: /flights?from=PNQ&to=JAI&date=2026-02-20
-```
+## License
 
-### Hotel Server (Port 8002)
-```
-GET /hotels
-  Params: location, checkin, checkout, guests
-  Example: /hotels?location=Jaipur&checkin=2026-02-20&checkout=2026-02-23&guests=2
-```
-
-### Event Server (Port 8003)
-```
-GET /events
-  Params: type (festivals/concerts), location
-  Example: /events?type=festivals&location=Jaipur
-```
-
-### Weather Server (Port 8004)
-```
-GET /weather
-  Params: location, days (forecast length)
-  Example: /weather?location=Jaipur&days=15
-```
-
-## ⚙️ Configuration
-
-### Environment Variables
-```bash
-# Required
-SERPAPI_KEY=your_serpapi_api_key_here
-
-# Optional (defaults work fine)
-FLASK_ENV=development
-DEBUG=True
-```
-
-### Server Ports
-| Service | Port | Purpose |
-|---------|------|---------|
-| Flight Server | 8001 | Flight search microservice |
-| Hotel Server | 8002 | Hotel search microservice |
-| Event Server | 8003 | Events microservice |
-| Weather Server | 8004 | Weather microservice |
-| Flask Web App | 5000 | Web interface |
-
-Modify port numbers in respective server files if needed.
-
-## 🧪 Testing
-
-### Run All Tests
-```bash
-pytest tests/ -v
-```
-
-### Run Specific Tests
-```bash
-pytest tests/test_flight.py -v
-pytest tests/test_hotel.py -v
-pytest tests/test_events.py -v
-pytest tests/test_weather.py -v
-```
-
-### Manual Testing
-See [TESTING.md](docs/TESTING.md) for comprehensive testing procedures.
-
-## 📚 Documentation
-
-- **[CLAUDE_DESKTOP_SETUP.md](docs/CLAUDE_DESKTOP_SETUP.md)** - Complete Claude Desktop integration guide
-- **[DEMO_STEPS.md](docs/DEMO_STEPS.md)** - Step-by-step demonstration instructions
-- **[MCP_SERVER_DETAILS.md](docs/MCP_SERVER_DETAILS.md)** - MCP configuration and setup
-- **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** - Production deployment options
-- **[TESTING.md](docs/TESTING.md)** - Comprehensive testing guide
-
-## 🌍 Deployment Options
-
-### Local Development
-```bash
-python demo_app.py
-```
-
-### Production with Gunicorn
-```bash
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:5000 demo_app:app
-```
-
-### Docker Deployment
-```bash
-docker-compose up --build
-```
-
-### Cloud Platforms
-See [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for detailed instructions:
-- AWS EC2 & Elastic Beanstalk
-- Azure App Service
-- Google Cloud Platform
-- Heroku
-- DigitalOcean
-
-## 📊 Performance Metrics
-
-| Component | Response Time | Notes |
-|-----------|---------------|-------|
-| Flight Search | 2-3 seconds | Via SerpAPI Google Flights |
-| Hotel Search | 2-3 seconds | Via SerpAPI Google Hotels |
-| Event Search | 1-2 seconds | Via SerpAPI |
-| Weather Forecast | <1 second | Open-Meteo free API |
-| Web UI Load | <500ms | Optimized static files |
-
-## 🐛 Troubleshooting
-
-### "SERPAPI_KEY not found"
-```bash
-# Verify .env file exists
-ls -la .env
-
-# Check .env content
-cat .env
-
-# Ensure format: SERPAPI_KEY=your_key_here
-```
-
-### "Port 8001 already in use"
-```bash
-# Windows: Find and kill process
-netstat -ano | findstr :8001
-taskkill /PID <PID> /F
-
-# macOS/Linux
-lsof -ti:8001 | xargs kill -9
-```
-
-### "Module not found errors"
-```bash
-# Reinstall dependencies
-pip install -r requirements.txt --upgrade
-
-# Verify installation
-python -c "import mcp; print('MCP installed')"
-```
-
-### "Claude Desktop not connecting"
-1. Verify config: `%APPDATA%\Claude\claude_desktop_config.json` (Windows)
-2. Check all servers running: Should show port messages
-3. Restart Claude Desktop completely
-4. Check browser console for errors
-
-See extended troubleshooting in documentation.
-
-## 🚀 Roadmap
-
-### Current ✅
-- [x] Flight search microservice
-- [x] Hotel search microservice
-- [x] Events discovery microservice
-- [x] Weather forecast microservice
-- [x] Web UI interface
-- [x] Claude Desktop integration
-- [x] Comprehensive documentation
-
-### Upcoming 🔄
-- [ ] User authentication & profiles
-- [ ] Trip itinerary generation
-- [ ] Price tracking & alerts
-- [ ] Mobile app (React Native/Flutter)
-- [ ] Advanced filtering & sorting
-- [ ] Multi-language support
-- [ ] Recommendation engine
-- [ ] Social features (trip sharing)
-
-### Future 🌟
-- [ ] Payment gateway integration
-- [ ] Hotel/Flight booking
-- [ ] Travel insurance integration
-- [ ] Visa & documentation helper
-- [ ] Currency converter
-- [ ] Restaurant recommendations
-- [ ] Activity suggestions
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how:
-
-### Code Contribution Steps
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/amazing-feature`
-3. Make changes & test
-4. Commit with clear messages: `git commit -m 'Add amazing feature'`
-5. Push branch: `git push origin feature/amazing-feature`
-6. Open Pull Request with description
-
-### Contribution Guidelines
-- Follow PEP 8 Python style guide
-- Add docstrings to functions
-- Write tests for new features
-- Update documentation
-- Keep commits atomic & meaningful
-
-## 📄 License
-
-This project is licensed under the **MIT License** - see [LICENSE](LICENSE) file for details.
-
-You are free to:
-- Use commercially
-- Modify the code
-- Distribute the software
-- Use privately
-- Use with patent use
-
-## 📞 Support & Contact
-
-### Need Help?
-- 📧 Email: harsh@example.com
-- 🐛 Report bugs: [GitHub Issues](https://github.com/harsh-dandge/TravelAssistant/issues)
-- 💬 Discussions: [GitHub Discussions](https://github.com/harsh-dandge/TravelAssistant/discussions)
-- 📖 Read docs: Check `/docs` folder
-
-### Community
-- Star the repository ⭐
-- Share with friends
-- Contribute improvements
-- Report issues & feedback
-
-## 🙏 Acknowledgments
-
-Special thanks to:
-- **Anthropic** - Model Context Protocol (MCP)
-- **SerpAPI** - Flight, Hotel & Event data APIs
-- **Open-Meteo** - Free weather data API
-- **Flask** - Web framework
-- **Python Community** - Amazing language & tools
-
-## 👨‍💻 Author
-
-**Harsh Dandge**
-- GitHub: [@harsh-dandge](https://github.com/harsh-dandge)
-- Project: Travel Assistant (TravelAssistant-ranjit)
-- Email: harsh.dandge@example.com
-
----
-
-## 📈 Stats
-
-- 📊 4 Microservices
-- 🌐 3 User Interfaces (Web, Claude, CLI)
-- 📦 Fully documented codebase
-- 🧪 Comprehensive test suite
-- 📚 Extensive documentation
-
----
-
-<div align="center">
-
-**⭐ If this project helped you, please star it on GitHub! ⭐**
-
-**Made with ❤️ by Harsh Dandge**
-
-[GitHub](https://github.com/harsh-dandge/TravelAssistant) • [Issues](https://github.com/harsh-dandge/TravelAssistant/issues) • [Discussions](https://github.com/harsh-dandge/TravelAssistant/discussions)
-
-**Happy Traveling! 🚀✈️**
-
-</div>
+This project is distributed under the MIT License. See [LICENSE](LICENSE).
