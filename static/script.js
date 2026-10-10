@@ -1,250 +1,183 @@
-/* TRAVEL ASSISTANT - JAVASCRIPT */
-
-// Set default dates
-document.addEventListener('DOMContentLoaded', function() {
-    const today = new Date();
-    const tomorrow = new Date(today);
+document.addEventListener("DOMContentLoaded", () => {
+    const asLocalDate = (value) => [
+        value.getFullYear(),
+        String(value.getMonth() + 1).padStart(2, "0"),
+        String(value.getDate()).padStart(2, "0")
+    ].join("-");
+    const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const nextWeek = new Date(today);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    
-    if (document.getElementById('flight-date')) {
-        document.getElementById('flight-date').valueAsDate = tomorrow;
+    const returnDate = new Date(tomorrow);
+    returnDate.setDate(returnDate.getDate() + 7);
+    const checkoutDate = new Date(tomorrow);
+    checkoutDate.setDate(checkoutDate.getDate() + 2);
+
+    for (const id of ["flight-date", "hotel-checkin"]) {
+        const field = document.getElementById(id);
+        if (field) field.value = asLocalDate(tomorrow);
     }
-    if (document.getElementById('flight-return')) {
-        document.getElementById('flight-return').valueAsDate = nextWeek;
-    }
-    if (document.getElementById('hotel-checkin')) {
-        document.getElementById('hotel-checkin').valueAsDate = tomorrow;
-    }
-    if (document.getElementById('hotel-checkout')) {
-        const checkout = new Date(tomorrow);
-        checkout.setDate(checkout.getDate() + 2);
-        document.getElementById('hotel-checkout').valueAsDate = checkout;
-    }
+    const returnField = document.getElementById("flight-return");
+    if (returnField) returnField.value = asLocalDate(returnDate);
+    const checkout = document.getElementById("hotel-checkout");
+    if (checkout) checkout.value = asLocalDate(checkoutDate);
 });
 
-// Tab switching
 function switchTab(tabName) {
-    // Hide all tabs
-    const tabs = document.querySelectorAll('.tab-content');
-    tabs.forEach(tab => tab.classList.remove('active'));
-    
-    // Remove active class from all buttons
-    const buttons = document.querySelectorAll('.tab-btn');
-    buttons.forEach(btn => btn.classList.remove('active'));
-    
-    // Show selected tab
-    document.getElementById(tabName).classList.add('active');
-    
-    // Add active class to clicked button
-    event.target.classList.add('active');
+    document.querySelectorAll(".tab-content").forEach((tab) => {
+        tab.classList.toggle("active", tab.id === tabName);
+    });
+    document.querySelectorAll(".tab-btn").forEach((button) => {
+        button.classList.toggle(
+            "active",
+            button.getAttribute("onclick") === `switchTab('${tabName}')`
+        );
+    });
 }
 
-// ==================== FLIGHT SEARCH ====================
-function searchFlights(e) {
-    e.preventDefault();
-    
-    const form = e.target;
-    const departure = form.querySelector('input[placeholder*="From"]').value;
-    const arrival = form.querySelector('input[placeholder*="To"]').value;
-    const date = document.getElementById('flight-date').value;
-    const returnDate = document.getElementById('flight-return').value;
-    
-    const resultsDiv = document.getElementById('flights-result');
-    resultsDiv.innerHTML = '<p style="text-align: center; color: #999;">Loading flights...</p>';
-    
-    // Simulated API call (replace with real API)
-    setTimeout(() => {
-        const flights = [
-            {
-                price: '₹' + (Math.random() * 3000 + 5000).toFixed(0),
-                duration: (Math.random() * 3 + 2).toFixed(1) + 'h',
-                airline: ['IndiGo', 'Air India', 'SpiceJet', 'Vistara'][Math.floor(Math.random() * 4)],
-                stops: Math.floor(Math.random() * 2)
-            },
-            {
-                price: '₹' + (Math.random() * 3000 + 5000).toFixed(0),
-                duration: (Math.random() * 3 + 2).toFixed(1) + 'h',
-                airline: ['IndiGo', 'Air India', 'SpiceJet', 'Vistara'][Math.floor(Math.random() * 4)],
-                stops: Math.floor(Math.random() * 2)
-            },
-            {
-                price: '₹' + (Math.random() * 3000 + 5000).toFixed(0),
-                duration: (Math.random() * 3 + 2).toFixed(1) + 'h',
-                airline: ['IndiGo', 'Air India', 'SpiceJet', 'Vistara'][Math.floor(Math.random() * 4)],
-                stops: Math.floor(Math.random() * 2)
-            }
-        ];
-        
-        let html = '';
-        flights.forEach(flight => {
-            html += `
-                <div class="flight-card">
-                    <div class="flight-info">
-                        <h3>${flight.airline}</h3>
-                        <p>${flight.price}</p>
-                    </div>
-                    <div class="flight-details">
-                        <span>${flight.duration}</span>
-                        <span>${flight.stops === 0 ? 'Non-Stop' : flight.stops + ' Stop(s)'}</span>
-                    </div>
-                </div>
-            `;
+function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    })[character]);
+}
+
+async function postSearch(url, payload, resultsDiv, render) {
+    resultsDiv.textContent = "Searching...";
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
         });
-        
-        html += `<div style="grid-column: 1/-1; text-align: center; padding: 20px;">
-            <p>Searching: ${departure} → ${arrival} on ${date}</p>
-            <p style="color: #999; font-size: 0.9em;">Results powered by Google Flights API</p>
-        </div>`;
-        
-        resultsDiv.innerHTML = html;
-    }, 1500);
-}
-
-// ==================== HOTEL SEARCH ====================
-function searchHotels(e) {
-    e.preventDefault();
-    
-    const form = e.target;
-    const location = form.querySelector('input[placeholder*="Location"]').value;
-    const checkin = document.getElementById('hotel-checkin').value;
-    const checkout = document.getElementById('hotel-checkout').value;
-    
-    const resultsDiv = document.getElementById('hotels-result');
-    resultsDiv.innerHTML = '<p style="text-align: center; color: #999;">Loading hotels...</p>';
-    
-    setTimeout(() => {
-        const hotels = [
-            { name: 'Taj Hotel', price: '₹8,500', rating: '4.8', reviews: 2450 },
-            { name: 'ITC Hotel', price: '₹6,200', rating: '4.6', reviews: 1890 },
-            { name: 'Marriott', price: '₹5,890', rating: '4.5', reviews: 1456 },
-            { name: 'Hilton', price: '₹7,200', rating: '4.7', reviews: 2100 },
-            { name: 'Plaza Hotel', price: '₹4,500', rating: '4.3', reviews: 980 }
-        ];
-        
-        let html = '';
-        hotels.forEach(hotel => {
-            html += `
-                <div class="hotel-card">
-                    <div class="hotel-rating">★★★★${parseFloat(hotel.rating) > 4.7 ? '★' : '☆'} ${hotel.rating}</div>
-                    <h3>${hotel.name}</h3>
-                    <p class="price">${hotel.price}/night</p>
-                    <p class="reviews">${hotel.reviews.toLocaleString()} reviews</p>
-                    <button class="btn btn-secondary" onclick="bookHotel('${hotel.name}')">Book Now</button>
-                </div>
-            `;
-        });
-        
-        html += `<div style="grid-column: 1/-1; text-align: center; padding: 20px;">
-            <p>Hotels in ${location} from ${checkin} to ${checkout}</p>
-            <p style="color: #999; font-size: 0.9em;">Results powered by Google Hotels API</p>
-        </div>`;
-        
-        resultsDiv.innerHTML = html;
-    }, 1500);
-}
-
-// ==================== EVENT SEARCH ====================
-function searchEvents(e) {
-    e.preventDefault();
-    
-    const form = e.target;
-    const eventType = form.querySelector('input[placeholder*="Event"]').value;
-    const location = form.querySelector('input[placeholder*="Location"]').value;
-    
-    const resultsDiv = document.getElementById('events-result');
-    resultsDiv.innerHTML = '<p style="text-align: center; color: #999;">Loading events...</p>';
-    
-    setTimeout(() => {
-        const events = [
-            { title: 'Jazz Festival', date: '2026-04-15', location: location },
-            { title: 'Art Exhibition', date: '2026-04-20', location: location },
-            { title: 'Cultural Show', date: '2026-04-25', location: location },
-            { title: 'Music Concert', date: '2026-04-28', location: location }
-        ];
-        
-        let html = '';
-        events.forEach(event => {
-            html += `
-                <div class="event-card">
-                    <h3>${event.title}</h3>
-                    <p class="event-date">📅 ${event.date}</p>
-                    <p class="event-location">📍 ${event.location}</p>
-                    <button class="btn btn-secondary" onclick="getEventTickets('${event.title}')">Get Tickets</button>
-                </div>
-            `;
-        });
-        
-        html += `<div style="grid-column: 1/-1; text-align: center; padding: 20px;">
-            <p>Searching: ${eventType} in ${location}</p>
-            <p style="color: #999; font-size: 0.9em;">Results powered by Google Events API</p>
-        </div>`;
-        
-        resultsDiv.innerHTML = html;
-    }, 1500);
-}
-
-// ==================== WEATHER SEARCH ====================
-function searchWeather(e) {
-    e.preventDefault();
-    
-    const form = e.target;
-    const location = form.querySelector('input[placeholder*="Location"]').value;
-    
-    const resultsDiv = document.getElementById('weather-result');
-    resultsDiv.innerHTML = '<p style="text-align: center; color: #999;">Loading forecast...</p>';
-    
-    setTimeout(() => {
-        const today = new Date();
-        let html = '';
-        
-        for (let i = 0; i < 5; i++) {
-            const date = new Date(today);
-            date.setDate(date.getDate() + i);
-            const dayName = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : date.toLocaleDateString('en-US', { weekday: 'short' });
-            const temp = Math.floor(Math.random() * 15 + 25);
-            const desc = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Rainy'][Math.floor(Math.random() * 4)];
-            
-            html += `
-                <div class="weather-card">
-                    <p class="weather-date">${dayName}</p>
-                    <p class="weather-temp">${temp}°C</p>
-                    <p class="weather-desc">${desc}</p>
-                </div>
-            `;
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || `Search failed (${response.status})`);
         }
-        
-        html += `<div style="grid-column: 1/-1; text-align: center; padding: 20px;">
-            <p>5-Day Forecast for ${location}</p>
-            <p style="color: #999; font-size: 0.9em;">Forecast powered by Open-Meteo API</p>
-        </div>`;
-        
-        resultsDiv.innerHTML = html;
-    }, 1500);
+        resultsDiv.innerHTML = render(data);
+    } catch (error) {
+        resultsDiv.innerHTML = `<p class="search-error" role="alert">${escapeHtml(error.message || "Search failed")}</p>`;
+    }
 }
 
-// ==================== ACTION HANDLERS ====================
-function bookHotel(hotelName) {
-    alert(`Booking ${hotelName}... (This would redirect to booking page)`);
+function searchFlights(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = {
+        departure: form.elements.departure.value,
+        arrival: form.elements.arrival.value,
+        date: form.elements.date.value,
+        return_date: form.elements.return_date.value || null,
+        adults: Number(form.elements.adults.value),
+        children: Number(form.elements.children.value)
+    };
+    const results = document.getElementById("flights-result");
+    postSearch("/api/flights", payload, results, (data) => {
+        if (!data.flights.length) return "<p>No flights found for these dates.</p>";
+        return data.flights.map((flight) => `
+            <article class="flight-card">
+                <div class="flight-info">
+                    <h3>${escapeHtml(flight.airline)}</h3>
+                    <p>${escapeHtml(flight.price ?? "Price unavailable")}</p>
+                </div>
+                <div class="flight-details">
+                    <span>${escapeHtml(flight.duration ?? "Duration unavailable")} min</span>
+                    <span>${flight.stops === 0 ? "Non-stop" : `${escapeHtml(flight.stops)} stop(s)`}</span>
+                    <span>${escapeHtml(flight.departure_time)} – ${escapeHtml(flight.arrival_time)}</span>
+                </div>
+            </article>`).join("");
+    });
 }
 
-function getEventTickets(eventName) {
-    alert(`Getting tickets for ${eventName}... (This would redirect to ticketing page)`);
+function searchHotels(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = {
+        location: form.elements.location.value,
+        check_in: form.elements.check_in.value,
+        check_out: form.elements.check_out.value,
+        guests: Number(form.elements.guests.value)
+    };
+    const results = document.getElementById("hotels-result");
+    postSearch("/api/hotels", payload, results, (data) => {
+        if (!data.hotels.length) return "<p>No hotels found for these dates.</p>";
+        return data.hotels.map((hotel) => `
+            <article class="hotel-card">
+                <h3>${escapeHtml(hotel.name)}</h3>
+                <p class="price">${escapeHtml(hotel.price)} / night</p>
+                <p class="hotel-rating">Rating: ${escapeHtml(hotel.rating)}</p>
+                <p class="reviews">${escapeHtml(hotel.reviews)} reviews</p>
+                <p>${escapeHtml(hotel.address)}</p>
+            </article>`).join("");
+    });
 }
 
-function bookFlight() {
-    alert('Flight booked! (This would redirect to confirmation page)');
+function searchEvents(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = {
+        event_type: form.elements.event_type.value,
+        location: form.elements.location.value
+    };
+    const results = document.getElementById("events-result");
+    postSearch("/api/events", payload, results, (data) => {
+        if (!data.events.length) return "<p>No events found for this search.</p>";
+        return data.events.map((item) => {
+            let link = "";
+            try {
+                const url = new URL(item.event_link);
+                if (["https:", "http:"].includes(url.protocol)) {
+                    link = `<a href="${escapeHtml(url.href)}" target="_blank" rel="noopener noreferrer">Event details</a>`;
+                }
+            } catch {
+                link = "";
+            }
+            return `<article class="event-card">
+                <h3>${escapeHtml(item.title)}</h3>
+                <p class="event-date">${escapeHtml(item.date)}</p>
+                <p class="event-location">${escapeHtml(item.location)}</p>
+                <p>${escapeHtml(item.ticket_price)}</p>${link}
+            </article>`;
+        }).join("");
+    });
 }
 
-// ==================== DEMO API CALL ============
-function loadDemoData() {
-    fetch('/api/demo')
-        .then(response => response.json())
-        .then(data => {
-            console.log('Demo data loaded:', data);
-        });
-}
+const weatherDescriptions = {
+    0: "Clear sky",
+    1: "Mainly clear",
+    2: "Partly cloudy",
+    3: "Overcast",
+    45: "Fog",
+    48: "Depositing rime fog",
+    51: "Light drizzle",
+    53: "Moderate drizzle",
+    55: "Dense drizzle",
+    61: "Slight rain",
+    63: "Moderate rain",
+    65: "Heavy rain",
+    71: "Slight snow",
+    73: "Moderate snow",
+    75: "Heavy snow",
+    80: "Rain showers",
+    81: "Moderate rain showers",
+    82: "Violent rain showers",
+    95: "Thunderstorm"
+};
 
-// Load demo data on page load
-loadDemoData();
+function searchWeather(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const results = document.getElementById("weather-result");
+    postSearch("/api/weather", { location: form.elements.location.value }, results, (data) => {
+        if (!data.weather.length) return "<p>No forecast available for this location.</p>";
+        return `<p class="forecast-location">Five-day forecast for ${escapeHtml(data.location)}</p>` +
+            data.weather.map((day) => `
+                <article class="weather-card">
+                    <p class="weather-date">${escapeHtml(day.date)}</p>
+                    <p class="weather-temp">${escapeHtml(day.temp_max)}° / ${escapeHtml(day.temp_min)}°C</p>
+                    <p class="weather-desc">${escapeHtml(weatherDescriptions[day.weather_code] || "Forecast available")}</p>
+                    <p>Precipitation: ${escapeHtml(day.precipitation)} mm</p>
+                </article>`).join("");
+    });
+}

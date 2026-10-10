@@ -217,6 +217,20 @@ body {
     margin-top: 20px;
 }
 
+.results > p {
+    grid-column: 1 / -1;
+}
+
+.search-error {
+    color: #b42318;
+    font-weight: 600;
+}
+
+.forecast-location {
+    grid-column: 1 / -1;
+    font-weight: 600;
+}
+
 /* Flight Cards */
 .flight-card {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

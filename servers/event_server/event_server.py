@@ -1,25 +1,36 @@
-# server to handle events at tourist place at related requests
-
-import os
-from typing import  Optional
 import json
-from datetime import datetime
+import logging
+import os
+from datetime import date
+from typing import Optional
+
 import requests
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
-EVENT_DIR = os.path.dirname(os.path.abspath(__file__))
-os.makedirs(EVENT_DIR, exist_ok=True)
-
-mcp = FastMCP("event-server")
-def getApiKey():
-    api_key = os.getenv("SERPAPI_KEY")
-    if not api_key:
-        raise ValueError("cannot fetch api key")
-    return api_key
+from utils import (
+    HTTP_SESSION,
+    get_api_key,
+    get_data_dir,
+    get_request_timeout,
+    get_search_file,
+    make_search_id,
+    parse_iso_date,
+    require_text,
+)
 
 load_dotenv()
-mcp = FastMCP("hotel-server")
+logger = logging.getLogger(__name__)
+mcp = FastMCP("event-server")
+EVENT_DIR = get_data_dir("events")
+DATE_FILTERS = {"today", "tomorrow", "week", "weekend", "next_week", "month", "next_month"}
+
+
+def _read_search(search_id: str) -> dict:
+    path = get_search_file(EVENT_DIR, search_id)
+    with path.open(encoding="utf-8") as file:
+        return json.load(file)
+
 
 @mcp.tool()
 def search_events(
@@ -28,374 +39,203 @@ def search_events(
     date_filter: Optional[str] = None,
     language: str = "en",
     country: str = "us",
-    max_results: int = 20
-):
-    """
-    Docstring to search events at a location
-    
-    Args: 
-        query: Search query for events (e.g., "concerts", "festivals", "art shows",..)
-        location: Location to search events in (e.g., "Kerla", "Rajsthan")
-        date_filter: date filter (today, tomorrow, week, weekend, next_week, month, next_month)
-        language: Language code (default: 'en')
-        country: Country code (default: 'us')
-        max_results: Maximum number of results to store (default: 20)
-    
-    Returns:
-        Dictionary containing event search results and its metadata
-    """
-
+    max_results: int = 20,
+) -> dict:
+    """Search and save events matching a query and optional date filter."""
     try:
-        api_key = getApiKey()
-        search_query = query
-        if location:
-            search_query+=f" in {location}"
-        
+        query = require_text(query, "query")
+        if location is not None:
+            location = require_text(location, "location")
+        if date_filter is not None and date_filter not in DATE_FILTERS:
+            raise ValueError(f"date_filter must be one of: {', '.join(sorted(DATE_FILTERS))}")
+        if isinstance(max_results, bool) or not isinstance(max_results, int) or not 1 <= max_results <= 100:
+            raise ValueError("max_results must be between 1 and 100")
+        if not language.isalpha() or not 2 <= len(language) <= 3:
+            raise ValueError("language must be a 2- or 3-letter language code")
+        if not country.isalpha() or len(country) != 2:
+            raise ValueError("country must be a 2-letter country code")
+        if not country.isascii():
+            raise ValueError("country must use ASCII letters")
+        if not language.isascii():
+            raise ValueError("language must use ASCII letters")
+
         params = {
             "engine": "google_events",
-            "api_key" : api_key,
-            "q": search_query,
-            "hl": language,
-            'gl': country
+            "api_key": get_api_key(),
+            "q": f"{query} in {location}" if location else query,
+            "hl": language.lower(),
+            "gl": country.lower(),
         }
-
-        filters = []
         if date_filter:
-            filters.append(f"date:{date_filter}")
-        if filters:
-            params["htichips"] = ",".join(filters)
-        
-        print("-----------------------")
-        
-        # api call to get events information from serpapi
-        response = requests.get("https://serpapi.com/search", params=params)
-        print(f"response: {response}")
+            params["htichips"] = f"date:{date_filter}"
+        response = HTTP_SESSION.get(
+            "https://serpapi.com/search", params=params, timeout=get_request_timeout()
+        )
         response.raise_for_status()
-        
-        event_data = response.json()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Event provider returned an invalid response")
+        if data.get("error"):
+            raise ValueError(f"Event provider error: {data['error']}")
 
-        print(event_data)
-
-        # unique search id
-        search_id = query.replace(' ','_')
-        search_id+=location if location else "global"
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        search_id += f"_{timestamp}"
-
-        events_results = event_data.get("events_results", [])[:max_results]
-        
-        processed_results = {
+        events = data.get("events_results") or []
+        if not isinstance(events, list) or any(
+            not isinstance(event, dict) for event in events
+        ):
+            raise ValueError("Event provider returned an invalid results list")
+        search_id = make_search_id(
+            query, location or "global", date.today().isoformat()
+        )
+        record = {
             "search_metadata": {
                 "search_id": search_id,
                 "query": query,
                 "location": location,
                 "date_filter": date_filter,
-                "language": language,
-                "country": country,
-                "search_timestamp": datetime.now().isoformat(),
-                "total_results": len(events_results)
+                "language": language.lower(),
+                "country": country.lower(),
+                "total_results": len(events[:max_results]),
             },
-            "search_parameters": event_data.get("search_parameters", {}),
-            "search_information": event_data.get("search_information", {}),
-            "events_results": events_results
+            "search_parameters": data.get("search_parameters") or {},
+            "search_information": data.get("search_information") or {},
+            "events_results": events[:max_results],
         }
+        os.makedirs(EVENT_DIR, exist_ok=True)
+        with get_search_file(EVENT_DIR, search_id).open("w", encoding="utf-8") as file:
+            json.dump(record, file, indent=2)
 
-        event_path = os.path.join(EVENT_DIR,f"{search_id}.json")
-        with open(event_path, "w") as f:
-            json.dump(processed_results, f, indent=2)
-
-
-        summary = {
+        return {
             "search_id": search_id,
-            "total_events": len(events_results),
+            "total_events": len(record["events_results"]),
             "query": query,
             "location": location,
-            "filters_applied": {
-                "date_filter": date_filter,
-            },
+            "filters_applied": {"date_filter": date_filter},
             "sample_events": [
                 {
                     "title": event.get("title", "N/A"),
-                    "date": event.get("date", {}).get("when", "N/A"),
-                    "venue": event.get("venue", {}).get("name", "N/A") if event.get("venue") else "N/A"
-                } for event in events_results[:3]
+                    "date": (event.get("date") or {}).get("when", "N/A")
+                    if isinstance(event.get("date"), dict)
+                    else event.get("date", "N/A"),
+                    "venue": (event.get("venue") or {}).get("name", "N/A")
+                    if isinstance(event.get("venue"), dict)
+                    else "N/A",
+                }
+                for event in record["events_results"][:3]
             ],
-            "search_parameters": processed_results["search_metadata"]
         }
-
-        return summary
-
-    except Exception as E:
-        return {"error while calling event search event api"}
+    except requests.RequestException as exc:
+        logger.warning("Event provider request failed (%s)", type(exc).__name__)
+        return {"error": "Event provider request failed; please retry shortly"}
+    except (ValueError, TypeError, AttributeError, OSError) as exc:
+        logger.warning("Event search rejected or could not be saved: %s", exc)
+        return {"error": str(exc)}
 
 
 @mcp.tool()
 def get_event_details(search_id: str) -> str:
-    """
-    Get detailed information about a specific event search.
-    
-    Args:
-        search_id: The search ID to search events for
-        
-    Returns:
-        JSON string with detailed event information
-    """
-    
-    file_path = os.path.join(EVENT_DIR, f"{search_id}.json")
-    
-    if not os.path.exists(file_path):
-        return f"No event search found with ID: {search_id}"
-    
+    """Return a saved event search as JSON."""
     try:
-        with open(file_path, "r") as f:
-            event_data = json.load(f)
-        return json.dumps(event_data, indent=2)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        return f"Error reading event data for {search_id}: {str(e)}"
+        return json.dumps(_read_search(search_id), indent=2)
+    except (ValueError, FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        return f"Unable to read event search: {exc}"
 
 
 @mcp.tool()
 def filter_events_by_date(
     search_id: str,
     date_range: Optional[str] = None,
-    specific_date: Optional[str] = None
+    specific_date: Optional[str] = None,
 ) -> str:
-    """
-    Filter events from a search by date criteria.
-    
-    Args:
-        search_id: The search ID returned from search_events
-        date_range: Date range filter (today, tomorrow, week, weekend, next_week, month)
-        specific_date: Filter by specific date (YYYY-MM-DD format)
-        
-    Returns:
-        JSON string with filtered event results
-    """
-    
-    file_path = os.path.join(EVENT_DIR, f"{search_id}.json")
-    
-    if not os.path.exists(file_path):
-        return f"No event search found with ID: {search_id}"
-    
+    """Filter saved events by a provider date phrase or exact ISO date."""
+    if date_range and date_range not in DATE_FILTERS:
+        return f"date_range must be one of: {', '.join(sorted(DATE_FILTERS))}"
+    if specific_date:
+        try:
+            parse_iso_date(specific_date, "specific_date")
+        except ValueError as exc:
+            return str(exc)
+    if date_range and specific_date:
+        return "Use date_range or specific_date, not both"
     try:
-        with open(file_path, "r") as f:
-            event_data = json.load(f)
-        
-        events = event_data.get("events_results", [])
-        filtered_events = []
-        
-        for event in events:
-            event_date = event.get("date", {})
-            if date_range:
-                if date_range.lower() in event_date.get("when", "").lower():
-                    filtered_events.append(event)
-            elif specific_date:
-                if specific_date in event_date.get("when", ""):
-                    filtered_events.append(event)
-            else:
-                filtered_events.append(event)
-        
-        result = {
-            "search_id": search_id,
-            "filters_applied": {
-                "date_range": date_range,
-                "specific_date": specific_date
+        record = _read_search(search_id)
+        filtered = []
+        for event in record.get("events_results", []):
+            date_info = event.get("date") or {}
+            event_date = " ".join(
+                str(value)
+                for value in date_info.values()
+                if isinstance(value, (str, int, float))
+            ) if isinstance(date_info, dict) else str(date_info)
+            if date_range and date_range.casefold() in event_date.casefold():
+                filtered.append(event)
+            elif specific_date and specific_date in event_date:
+                filtered.append(event)
+            elif not date_range and not specific_date:
+                filtered.append(event)
+        return json.dumps(
+            {
+                "search_id": search_id,
+                "filters_applied": {
+                    "date_range": date_range,
+                    "specific_date": specific_date,
+                },
+                "filtered_events": filtered,
+                "total_filtered": len(filtered),
             },
-            "filtered_events": filtered_events,
-            "total_filtered": len(filtered_events)
-        }
-        
-        return json.dumps(result, indent=2)
-        
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        return f"Error processing event data for {search_id}: {str(e)}"
+            indent=2,
+        )
+    except (ValueError, FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        return f"Unable to filter event search: {exc}"
 
 
-@mcp.resource("EVENT_DIR://{search_id}")
-def get_event_details(search_id:str) -> str:
-    file_path = os.path.join(EVENT_DIR,f"{search_id}.json")
+@mcp.resource("events://searches")
+def list_event_searches() -> str:
+    """List saved event searches."""
+    if not os.path.isdir(EVENT_DIR):
+        return "No event searches found."
+    searches = []
+    for filename in sorted(os.listdir(EVENT_DIR)):
+        if not filename.endswith(".json"):
+            continue
+        try:
+            searches.append(_read_search(filename[:-5]).get("search_metadata", {}))
+        except (ValueError, FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+            logger.warning("Skipping unreadable event search %s: %s", filename, exc)
+    return json.dumps(searches, indent=2)
 
-    if not os.path.exists(file_path):
-        return f"Event Search not found for search_id {search_id}"
-    try:
-        with open(file_path,"r") as f:
-            event_data = json.load(f)
-        
-        metadata = event_data.get('search_metadata',{})
-        events = event_data.get('events_results',[])
-        
-        content = f"# Event Search: {search_id}\n\n"
-        content += f"## Search Details\n"
-        content += f"- **Query**: {metadata.get('query', 'N/A')}\n"
-        content += f"- **Location**: {metadata.get('location', 'N/A')}\n"
-        content += f"- **Date Filter**: {metadata.get('date_filter', 'None')}\n"
-        content += f"- **Language**: {metadata.get('language', 'N/A')}\n"
-        content += f"- **Country**: {metadata.get('country', 'N/A')}\n"
-        content += f"- **Total Results**: {metadata.get('total_results', 0)}\n"
-        content += f"- **Search Time**: {metadata.get('search_timestamp', 'N/A')}\n\n"
 
-        if events:
-            content+=f"Events Found {len(events)}\n\n"
-            for i,event in events:
-                content+=f"# {i+1}. {event.get('title','NA')}\n"
+@mcp.resource("events://{search_id}")
+def get_event_search_details(search_id: str) -> str:
+    """Read a saved event search resource."""
+    return get_event_details(search_id)
 
-                date_info = event.get('date',{})
-                content += f"- **When**: {date_info.get('when', 'N/A')}\n"
-                    
-                address = event.get('address', [])
-                if address:
-                    content += f"- **Address**: {', '.join(address)}\n"
-                
-                venue = event.get('venue', {})
-                if venue:
-                    content += f"- **Venue**: {venue.get('name', 'N/A')}"
-                    if venue.get('rating'):
-                        content += f" (Rating: {venue['rating']}/5, {venue.get('reviews', 0)} reviews)"
-                    content += "\n"
-                
-                description = event.get('description', '')
-                if description:
-                    content += f"- **Description**: {description[:200]}{'...' if len(description) > 200 else ''}\n"
-                
-                ticket_info = event.get('ticket_info', [])
-                if ticket_info:
-                    content += f"- **Tickets Available**: {len(ticket_info)} sources\n"
-                    for ticket in ticket_info[:2]:  # Show first 2 ticket sources
-                        content += f"  - {ticket.get('source', 'N/A')}: {ticket.get('link_type', 'info')}\n"
-                
-                content += f"- **Event Link**: {event.get('link', 'N/A')}\n\n"
-                content += "---\n\n"
-        else:
-            content += "No events found for this search.\n"
-        
-        return content
-    
-    except json.JSONDecodeError:
-        return f"# Error\n\nCorrupted event data for search ID: {search_id}"
-    
+
 @mcp.prompt()
 def event_discovery_prompt(
     location: str,
     interests: str = "",
     date_preference: str = "",
     event_type: str = "",
-    budget: str = ""
+    budget: str = "",
 ) -> str:
-    """Generate a structured event search prompt for Claude."""
+    return (
+        f"Find {event_type or 'events'} in {location}. "
+        f"Interests: {interests or 'any'}. "
+        f"Date preference: {date_preference or 'any'}. "
+        f"Budget: {budget or 'not specified'}. "
+        "Search first, then summarize dates, venues, ticket information, "
+        "and practical travel considerations. Do not invent missing details."
+    )
 
-    prompt = f"""I want to explore interesting events happening in {location}"""
-
-    if interests:
-        prompt += f" that match my interests: {interests}"
-
-    if date_preference:
-        prompt += f" around {date_preference}"
-
-    if event_type:
-        prompt += f", mainly {event_type} events."
-
-    if budget:
-        prompt += f" My budget is roughly: {budget}."
-
-    prompt += f"""
-
-Please follow this process while helping me:
-
-1. **Search for Events**:
-   Use the search_events tool with:
-   - Location: {location}
-   - Query: {interests if interests else "events"}"""
-
-    if date_preference:
-        prompt += f"""
-   - Date filter: {date_preference}"""
-
-    if event_type:
-        prompt += f"""
-   - Event category: {event_type}"""
-
-    prompt += f"""
-
-2. **Analyze the Results**:
-   After retrieving events, provide:
-   - A concise summary of the most noteworthy ones
-   - Grouping by type (music, festivals, art, sports, etc.)
-   - Date and timing insights for easier planning
-   - Venue details and accessibility notes
-   - Ticket status and pricing observations
-
-3. **Recommendations Based on My Preferences**:
-   - Top 5 suggested events with clear reasoning
-   - Other relevant options worth considering
-   - Lesser-known or unique events
-   - Timely or seasonal highlights
-
-4. **Useful Practical Details**:
-   For the recommended events, include:
-   - Venue information and directions
-   - Parking and transport suggestions
-   - What to expect and preparation tips
-   - Advice on booking tickets
-
-5. **Planning Support**:
-   Help me plan if I pick multiple events:
-   - Possible mini-itineraries
-   - Nearby places to eat or visit
-   - Scheduling and timing advice
-
-Start by using the event search tools, then provide detailed analysis and tailored suggestions based on the findings. Focus on events that best align with my interests and preferences.
-"""
-
-    return prompt
 
 @mcp.prompt()
 def event_comparison_prompt(search_id: str) -> str:
-    """Generate a prompt for structured event comparison and analysis."""
-
-    return f"""Review and compare the events associated with search ID: {search_id}
-
-        Please perform a detailed evaluation using the following steps:
-
-        1. **Retrieve Event Data**:
-        Use get_event_details('{search_id}') to fetch the complete list of events.
-
-        2. **Categorize the Events**:
-        - Organize events by type (concerts, festivals, arts, sports, networking, etc.)
-        - Distinguish recurring events from one-time events
-        - Separate free events from paid ones
-
-        3. **Side-by-Side Comparison**:
-        - Analyze dates and timings (weekday vs weekend, morning/evening)
-        - Compare venues (indoor/outdoor, size, accessibility)
-        - Evaluate ticket pricing and availability
-        - Note event duration and structure
-
-        4. **Assess Quality Signals**:
-        - Venue ratings and public feedback
-        - Expected popularity and crowd levels
-        - Organizer credibility and past event record
-
-        5. **Apply Filtering Tools Where Helpful**:
-        - filter_events_by_date for time-based preferences
-        - filter_events_by_type for category-focused analysis
-        - filter_events_by_venue for location preferences
-
-        6. **Highlight Top Picks**:
-        - Best value for money
-        - Most distinctive or memorable events
-        - Easiest to attend (location, timing, access)
-        - Suitable options for different group sizes
-
-        7. **Planning Insights**:
-        - Events that can be combined within a day or weekend
-        - Need for early booking
-        - Weather impact for outdoor venues
-        - Transport and parking considerations
-
-        Present the findings in a well-structured format with actionable recommendations for families, couples, solo visitors, and groups.
-        """
+    return (
+        f"Compare the events in saved search {search_id}. Retrieve the saved "
+        "search and summarize dates, venues, ticket information, and any "
+        "missing details that a traveler should verify."
+    )
 
 
 if __name__ == "__main__":
-    # Initialize and run the server
-    mcp.run(transport='stdio')
+    mcp.run(transport="stdio")
