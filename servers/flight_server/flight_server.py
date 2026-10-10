@@ -1,38 +1,35 @@
-# server to handle flight related requests
-
-# https://serpapi.com/google-flights-api
-
+import json
+import logging
+import math
 import os
-FLIGHT_DIR = os.path.dirname(os.path.abspath(__file__))
+from datetime import date
+from typing import Any, Dict, Optional
+
 import requests
 from dotenv import load_dotenv
-import json
 from mcp.server.fastmcp import FastMCP
-from typing import Dict, Any, Optional
-from datetime import datetime
+
+from utils import (
+    HTTP_SESSION,
+    get_api_key,
+    get_data_dir,
+    get_request_timeout,
+    get_search_file,
+    make_search_id,
+    parse_iso_date,
+)
+
 load_dotenv()
+logger = logging.getLogger(__name__)
 mcp = FastMCP("flight-server")
-# from utils import getApiKey
-def getApiKey():
-    api_key = os.getenv("SERPAPI_KEY")
-    if not api_key:
-        raise ValueError("cannot fetch api key")
-    return api_key
+FLIGHT_DIR = get_data_dir("flights")
 
 
-api_key = getApiKey()
-params = {
-  'api_key': api_key,
-  "engine": "google_flights",
-    "departure_id": 'PNQ',
-    "arrival_id": 'DEL',
-    "outbound_date": '2026-03-15',
-    "adults": "2",
-    "children": "0",
-    "type": "1",
-    "currency": "INR",
-    "sort_by": "Price"  # default Top flights
-}
+def _read_search(search_id: str) -> dict:
+    path = get_search_file(FLIGHT_DIR, search_id)
+    with path.open(encoding="utf-8") as file:
+        return json.load(file)
+
 
 @mcp.tool()
 def search_flight(
@@ -49,328 +46,228 @@ def search_flight(
     currency: str = "INR",
     country: str = "in",
     language: str = "en",
-    max_results: int = 10
-
+    max_results: int = 10,
 ) -> Dict[str, Any]:
-    """searchs available flights for user
-    Args:
-        "departure_id": departure city. id eg. 'PNQ',
-        "arrival_id": arrival city. id eg. 'DEL',
-        "outbound_date": date of onboarding.  eg.'2026-03-15',
-        "adults": "2", Number of adults. default 1
-        "children": "0", Number of children , default 0
-        "infants_in_seat":  Number of infants in seat (default: 0)
-        "infants_on_lap": Number of infants on lap (default: 0)
-        travel_class: Travel class (1=Economy, 2=Premium economy, 3=Business, 4=First)
-        country: Country code for search (default: 'ind')
-        language: Language code (default: 'en')
-        max_results: Maximum number of results to store (default: 10)
-        "type": "2", type = 2 if trip is one way, if there is return trip then type = 1 
-        "currency": "INR",
-        "sort_by": "Price"
-    
-        Returns:
-        Dictionary containing result of flight search
-    """
+    """Search flights and save the provider response for later filtering."""
     try:
-        api_key = getApiKey()
+        departure_id = departure_id.strip().upper()
+        arrival_id = arrival_id.strip().upper()
+        if not (departure_id.isascii() and departure_id.isalnum() and 3 <= len(departure_id) <= 8):
+            raise ValueError("departure_id must be a valid airport or city code")
+        if not (arrival_id.isascii() and arrival_id.isalnum() and 3 <= len(arrival_id) <= 8):
+            raise ValueError("arrival_id must be a valid airport or city code")
+        if departure_id == arrival_id:
+            raise ValueError("Departure and arrival must be different")
+        outbound = parse_iso_date(outbound_date, "outbound_date")
+        if outbound < date.today():
+            raise ValueError("outbound_date cannot be in the past")
+        if isinstance(trip_type, bool) or not isinstance(trip_type, int) or trip_type not in (1, 2):
+            raise ValueError("trip_type must be 1 (round trip) or 2 (one way)")
+        if trip_type == 1:
+            if not return_date:
+                raise ValueError("return_date is required for a round trip")
+            returned = parse_iso_date(return_date, "return_date")
+            if returned <= outbound:
+                raise ValueError("return_date must be after outbound_date")
+        elif return_date:
+            raise ValueError("return_date is only valid for a round trip")
+        passenger_counts = {
+            "adults": (adults, 1, 9),
+            "children": (children, 0, 9),
+            "infants_in_seat": (infants_in_seat, 0, 9),
+            "infants_on_lap": (infants_on_lap, 0, adults),
+        }
+        for name, (count, minimum, maximum) in passenger_counts.items():
+            if isinstance(count, bool) or not isinstance(count, int) or not minimum <= count <= maximum:
+                raise ValueError(f"{name} is outside the supported range")
+        if adults + children + infants_in_seat + infants_on_lap > 9:
+            raise ValueError("A search can include at most 9 passengers")
+        if isinstance(travel_class, bool) or travel_class not in (1, 2, 3, 4):
+            raise ValueError("travel_class must be between 1 and 4")
+        if isinstance(max_results, bool) or not isinstance(max_results, int) or not 1 <= max_results <= 50:
+            raise ValueError("max_results must be between 1 and 50")
+        if not isinstance(currency, str) or not currency.isascii() or not currency.isalpha() or len(currency) != 3:
+            raise ValueError("currency must be a 3-letter currency code")
+        if not isinstance(country, str) or not country.isascii() or not country.isalpha() or len(country) != 2:
+            raise ValueError("country must be a 2-letter country code")
+        if not isinstance(language, str) or not language.isascii() or not language.isalpha() or not 2 <= len(language) <= 3:
+            raise ValueError("language must be a 2- or 3-letter language code")
+
         params = {
             "engine": "google_flights",
-            "api_key":api_key,
-            "departure_id":departure_id,
-            "arrival_id":arrival_id,
-            "outbound_date":outbound_date,
-            "return_date": return_date,
+            "api_key": get_api_key(),
+            "departure_id": departure_id,
+            "arrival_id": arrival_id,
+            "outbound_date": outbound.isoformat(),
             "type": trip_type,
             "adults": adults,
             "children": children,
             "infants_in_seat": infants_in_seat,
             "infants_on_lap": infants_on_lap,
             "travel_class": travel_class,
-            "currency": currency,
-            "country": country,
-            "language": language,
-            "max_results": max_results
-
+            "currency": currency.upper(),
+            "gl": country.lower(),
+            "hl": language.lower(),
+            "max_results": max_results,
         }
-
-        if trip_type == 1 and return_date:
-            params["return_date"] = return_date
-        elif trip_type == 1:
-            return {"error": "Round trip flight must have return date"}
-
-        try:
-            api_result = requests.get('https://serpapi.com/search', params)
-            api_result.raise_for_status()
-
-            flight_data = api_result.json()
-        except Exception as e:
-            return {"error": f"Error while requesting API call: {str(e)}"}
-
-    
-        os.makedirs(FLIGHT_DIR,exist_ok=True)
-
-
-        search_id = f"{departure_id}_{arrival_id}_{outbound_date}"
         if return_date:
-            search_id += f"_{return_date}"
+            params["return_date"] = return_date
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        search_id += f"_{timestamp}"
+        response = HTTP_SESSION.get(
+            "https://serpapi.com/search", params=params, timeout=get_request_timeout()
+        )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("Flight provider returned an invalid response")
+        if data.get("error"):
+            raise ValueError(f"Flight provider error: {data['error']}")
 
-
-
-        flight_filedata = {
+        best_flights = data.get("best_flights") or []
+        other_flights = data.get("other_flights") or []
+        if not isinstance(best_flights, list) or not isinstance(other_flights, list):
+            raise ValueError("Flight provider returned an invalid results list")
+        if any(not isinstance(flight, dict) for flight in best_flights + other_flights):
+            raise ValueError("Flight provider returned an invalid flight record")
+        search_id = make_search_id(
+            departure_id,
+            arrival_id,
+            outbound.isoformat(),
+            return_date,
+            date.today().isoformat(),
+        )
+        record = {
+            "search_metadata": {
+                "search_id": search_id,
+                "currency": currency.upper(),
+                "created_at": date.today().isoformat(),
+            },
+            "search_parameters": params | {"api_key": "[redacted]"},
             "search_data": {
                 "search_id": search_id,
                 "departure_id": departure_id,
                 "arrival_id": arrival_id,
-                "outbound_date": outbound_date,
+                "outbound_date": outbound.isoformat(),
                 "return_date": return_date,
-                "trip_type": "Round Trip" if trip_type==1 else "One Way" if trip_type==2 else "Multi City",
+                "trip_type": "Round Trip" if trip_type == 1 else "One Way",
                 "adults": adults,
                 "children": children,
                 "infants_in_seat": infants_in_seat,
                 "infants_on_lap": infants_on_lap,
-                "currency": currency
+                "currency": currency.upper(),
             },
-            "search_results": {
-                "best_flights": flight_data.get("best_flights", [])[:max_results],
-                "other_flights": flight_data.get("other_flights", [])[:max_results],
-                "price_insights": flight_data.get("price_insights", {})         
-            },
+            "best_flights": best_flights[:max_results],
+            "other_flights": other_flights[:max_results],
+            "price_insights": data.get("price_insights") or {},
         }
+        os.makedirs(FLIGHT_DIR, exist_ok=True)
+        with get_search_file(FLIGHT_DIR, search_id).open("w", encoding="utf-8") as file:
+            json.dump(record, file, indent=2)
 
-
-        flight_data_file = os.path.join(FLIGHT_DIR,f"{search_id}.json")
-
-        with open(flight_data_file,"w") as f:
-            json.dump(flight_filedata,f,indent=2)
-
-        summary = {
+        return {
             "search_id": search_id,
-            "route": f"{departure_id} → {arrival_id}",
-            "trip_type": "Round Trip" if return_date else "One Way",
-            "dates": {
-                "outbound": outbound_date,
-                "return": return_date
-            },
-            "passengers": {
-                "adults": adults,
-                "children": children,
-                "infants": infants_in_seat + infants_on_lap
-            },
-            "results_overview": {
-                "best_flights_found": len(flight_data.get("best_flights", [])),
-                "other_flights_found": len(flight_data.get("other_flights", []))
-            },
-            "pricing": {
-                "lowest_price": flight_data.get("price_insights", {}).get("lowest_price"),
-                "currency": currency,
-                "price_level": flight_data.get("price_insights", {}).get("price_level"),
-                "typical_range": flight_data.get("price_insights", {}).get("typical_price_range")
-            }
+            "route": f"{departure_id} -> {arrival_id}",
+            "trip_type": record["search_data"]["trip_type"],
+            "dates": {"outbound": outbound.isoformat(), "return": return_date},
+            "passengers": adults + children + infants_in_seat + infants_on_lap,
+            "best_flights_found": len(best_flights),
+            "other_flights_found": len(other_flights),
+            "price_insights": record["price_insights"],
         }
-
-        return summary
-
-    except Exception as e:
-        return {"error": str(e)}
+    except requests.RequestException as exc:
+        logger.warning("Flight provider request failed (%s)", type(exc).__name__)
+        return {"error": "Flight provider request failed; please retry shortly"}
+    except (ValueError, TypeError, AttributeError, OSError) as exc:
+        logger.warning("Flight search rejected or could not be saved: %s", exc)
+        return {"error": str(exc)}
 
 
 @mcp.tool()
-def get_flight_details(search_id:str) ->str:
-    """
-    search flight informatio for unique search_id.
-
-    Args:
-        search_id: unique id to search flight records from {FLIGHT_DIR/search_id.json}
-
-    Returns:
-        Json string with flights information
-    """
-    file = os.path.join(FLIGHT_DIR,f"{search_id}.json")
-    if not os.path.exists(file):
-        return f"no flight with search id {search_id} found"
+def get_flight_details(search_id: str) -> str:
+    """Return the saved flight search as JSON."""
     try:
-        with open(file,"r") as f:
-            flight_data = json.load(f)
-        return json.dumps(flight_data,indent=2)
-    except:
-        return f"Error while reading file data for search id : {search_id}"
+        return json.dumps(_read_search(search_id), indent=2)
+    except (ValueError, FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        return f"Unable to read flight search: {exc}"
 
 
 @mcp.tool()
-def filter_flights_by_price(search_id:str,min_price:Optional[float] = None,max_price:Optional[float] = None)->str:
-    """
-    Filters flights that costs between min_price and max_price
-
-    Args:
-        search_id: unique id to search flight records from {FLIGHT_DIR/search_id.json}
-        min_price: minimum price filter (optional)
-        max_price: maximum price filter (optional)
-
-    Returns:
-        Json string cotaining filtered list of flight/s
-    """
-
+def filter_flights_by_price(
+    search_id: str,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+) -> str:
+    """Filter saved flight options by inclusive price bounds."""
     try:
-        flight_path = os.path.join(FLIGHT_DIR,f"{search_id}.json")
+        for name, price in (("min_price", min_price), ("max_price", max_price)):
+            if price is not None and (
+                isinstance(price, bool)
+                or not isinstance(price, (int, float))
+                or not math.isfinite(price)
+                or price < 0
+            ):
+                raise ValueError(f"{name} must be a finite non-negative number")
+        if min_price is not None and max_price is not None and min_price > max_price:
+            raise ValueError("min_price cannot exceed max_price")
+        record = _read_search(search_id)
 
-        if not os.path.exists(flight_path):
-            return "Error: can not find flight path {flight_path}"
-        
-        with open(flight_path,'r') as f:
-            flight_data = json.load(f)
-
-        def price_filter(flight):
-            price = flight.get('price',0)
-
-            if min_price is not None and price <min_price:
+        def matches(flight: dict) -> bool:
+            price = flight.get("price")
+            if not isinstance(price, (int, float)):
                 return False
-            if max_price is not None and price > max_price:
-                return False
-            return True
-        
-        filtered_best_flights = []
-        filtered_other_flights = []
-        for f in flight_data.get('best_flights',[]):
-            if price_filter(f) == True:
-                filtered_best_flights.append(f)
-        
-        for f in flight_data.get('other_flights',[]):
-            if price_filter(f) == True:
-                filtered_best_flights.append(f)
-        
-        result =  {
-            "search_id:":search_id,
-            "price_filter":{
-                "min_price ": min_price,
-                "max_price ": max_price
+            return (min_price is None or price >= min_price) and (
+                max_price is None or price <= max_price
+            )
+
+        best = [flight for flight in record.get("best_flights", []) if matches(flight)]
+        other = [flight for flight in record.get("other_flights", []) if matches(flight)]
+        return json.dumps(
+            {
+                "search_id": search_id,
+                "filters_applied": {"min_price": min_price, "max_price": max_price},
+                "filtered_best_flights": best,
+                "filtered_other_flights": other,
+                "total_filtered": len(best) + len(other),
             },
-            "filtered_best_flights":filtered_best_flights,
-            "filtered_other_flights":filtered_other_flights,
-            "total filtered flights:": len(filtered_best_flights) + len(filtered_other_flights)
-        }
-    
-        return json.dumps(result,indent=2)
+            indent=2,
+        )
+    except (ValueError, FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        return f"Unable to filter flight search: {exc}"
 
-    except:
-        return f"Error in processing flight data for {search_id}"
-        
 
 @mcp.resource("flights://searches")
 def get_flight_searches() -> str:
-    """
-    This resource provides list of all saved flight searches
-    """
-    flight_searches = []
+    """List saved searches with route, dates, and available result counts."""
+    if not os.path.isdir(FLIGHT_DIR):
+        return "No flight searches found."
+    searches = []
+    for filename in sorted(os.listdir(FLIGHT_DIR)):
+        if not filename.endswith(".json"):
+            continue
+        search_id = filename[:-5]
+        try:
+            record = _read_search(search_id)
+        except (ValueError, FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+            logger.warning("Skipping unreadable flight search %s: %s", search_id, exc)
+            continue
+        data = record.get("search_data", {})
+        searches.append(
+            {
+                "search_id": search_id,
+                "route": f"{data.get('departure_id', '?')} -> {data.get('arrival_id', '?')}",
+                "outbound_date": data.get("outbound_date"),
+                "return_date": data.get("return_date"),
+                "best_flights": len(record.get("best_flights", [])),
+                "other_flights": len(record.get("other_flights", [])),
+            }
+        )
+    return json.dumps(searches, indent=2)
 
-    for filename in os.listdir(FLIGHT_DIR):
-        if filename.endswith('.json'):
-            filepath = os.path.join(FLIGHT_DIR,filename)
-            search_id = filename[:-5]  #removing .json from filename
-            try:
-                with open(filepath,'r') as f:
-                    flight_data = json.load(f)
-                    flight_searches.append(flight_data)
-            except (json.JSONDecodeError, OSError) as e:
-                print(f"Skipping invalid file {filename}: {e}")
-                continue
-
-    
-    
-    if len(flight_searches) == 0:
-        return "Empty Flight Search List"
-    content = "List of available flights \n\n"
-    
-    for search in flight_searches:
-        current_flight_info = ""
-        dep_airport_name = search.get("best_flights").get("flights").get("departure_airport").get("name")
-        dep_airport_time = search.get("best_flights").get("flights").get("departure_airport","").get("time","")
-        arr_airport_name = search.get("best_flights").get("flights").get("arrival_airport","").get("name","")
-        arr_airport_time = search.get("best_flights").get("flights").get("arrival_airport").get("time")
-        price = search.get("best_flights").get("price")
-        
-        current_flight_info+=f"Departure Airport: {dep_airport_name} \n"
-        current_flight_info+=f"Departure date and time: {dep_airport_time} \n"
-        
-        if search['search_parameters'].get(type) == 1:
-            current_flight_info+=f"return Airport: {arr_airport_name} \n"
-            current_flight_info+=f"return date and time: {arr_airport_time} \n"
-        current_flight_info+=f"Flight Price: {price} \n"
-
-        content+=current_flight_info
-        content+="\n"
-    
-    return content
 
 @mcp.resource("flights://{search_id}")
-def get_flight_search_details(search_id:str) ->str:
-    """
-    Gives detailed flight information about perticular flight search
-
-    Args:
-        search_id: flight search id to retrive data
-    """
-    file_path = os.path.join(FLIGHT_DIR,f"{search_id}.json")
-
-    if not os.path.exists(file_path):
-        return "No records found for this flight id !"
-    
-    with open(file_path,'r') as f:
-        flight_data = json.load(f)
-    
-    metadata = flight_data.get("search_metadata","")
-    best_flights = flight_data.get("best_flights","")
-    other_flights = flight_data.get("other_flights","")
-    price_insights = flight_data.get("price_insights","")
-    search_parameters = flight_data.get("search_parameters","")
-    content = f"Here is detailed information for flight with search_id: {search_id}"
-    if len(best_flights)>0:
-        content+=""
-        for flight in best_flights:
-            dep_airport_name = best_flights.get("flights").get("departure_airport").get("name")
-            dep_airport_time = best_flights.get("flights").get("departure_airport","").get("time","")
-            arr_airport_name = best_flights.get("flights").get("arrival_airport","").get("name","")
-            arr_airport_time = best_flights.get("flights").get("arrival_airport").get("time")
-            
-            price = best_flights.get("price")
-            
-            current_flight_info+=f"Departure Airport: {dep_airport_name} \n"
-            current_flight_info+=f"Departure date and time: {dep_airport_time} \n"
-            
-            if search_parameters.get(type) == 1:
-                current_flight_info+=f"return Airport: {arr_airport_name} \n"
-                current_flight_info+=f"return date and time: {arr_airport_time} \n"
-            current_flight_info+=f"Flight Price: {price} \n"
-
-            content+=current_flight_info
-            content+="\n\n"
-    
-    # will add short summary about other flights
-    if len(other_flights)>0:
-        content+="information about other flights \nf"
-
-        content += f"Summary of Information of Other Flights\n"
-        content += f"Total other options: {len(other_flights)}\n"
-        prices = [f.get("price", 0) for f in other_flights]
-
-        content += f"Price range: {min(prices)} - {max(prices)} {metadata.get('currency', 'INR')}\n\n"
-
-
-
-    if len(price_insights):
-        content+="Flight price insights \n"
-        lowest_price = price_insights.get("lowest_price","")
-        typical_price_range_L = price_insights.get("typical_price_range")[0]
-        typical_price_range_H = price_insights.get("typical_price_range")[1]
-        
-        content+=f"Lowest Price Available: {lowest_price} \n"
-        content+=f"Typical Price Range: {typical_price_range_L} -> {typical_price_range_H} \n"
-
-
-    return content
+def get_flight_search_details(search_id: str) -> str:
+    """Read a saved flight search by ID."""
+    return get_flight_details(search_id)
 
 
 @mcp.prompt()
@@ -378,77 +275,34 @@ def travel_planning_prompt(
     departure: str,
     destination: str,
     departure_date: str,
-    return_date:str = "",
-    passangers: int = 1,
+    return_date: str = "",
+    passengers: int = 1,
     budget: str = "",
-    preferences: str = ""
-) ->str:
-    """Generate a travel planning prompt for LLM. """
-    prompt = ""
-    prompt+= f"plan a trip from {departure} to {destination}, departure is on {departure_date} "
-    if return_date!="":
-        prompt+=f" and return date {return_date} "
-    else:
-        prompt+= "(one way)"
-    
-    if budget!="":
-        prompt+=f"Budget is {budget}"
-    if preferences!="":
-        prompt+=f"Trip preferences are {preferences} "
-    
-    prompt+= f"""
-    please help with following travel plan task:
-    
-    1. flight search: use search_flight tool to search flight from {departure} to {destination} on departure date {departure_date} """
-    if return_date!="":
-        prompt+=f"""and return date: {return_date}"""
-    else:
-        prompt+=f"(one way)"
-    prompt+= f"Number of passangers: {passangers}"
-    prompt+="""
-    Analyze price insights and recommend best options
+    preferences: str = "",
+) -> str:
+    trip = f"from {departure} to {destination} on {departure_date}"
+    if return_date:
+        trip += f" and returning {return_date}"
+    details = f" for {passengers} passenger(s)"
+    if budget:
+        details += f", with a budget of {budget}"
+    if preferences:
+        details += f"; preferences: {preferences}"
+    return (
+        f"Plan a trip {trip}{details}. Search flights first, compare available "
+        "prices, stop counts, schedules, and price insights, then recommend "
+        "suitable options. Clearly state when information is unavailable."
+    )
 
-    2. Flight Analysis: find the available flights flights and then recommend best flights option
-       mention price comparison analysis
-
-    """
-    if budget!="":
-        prompt+="""
-            Analyze flights costs and help plan flights withing budget 
-        """
-    
-    prompt+="""Present the information in a clear, organized format with suitable recommendations. Use the flight search tools first to get list of flights, then provide analysis and recommendations based on the results."""
-
-    return prompt
 
 @mcp.prompt()
-def flight_comparison_promtp(
-    search_id: str
-) -> str:
-    prompt = f"Analyze and compare all the flights from options with search id {search_id} \n"
-    prompt+=f"""
-        use get_flight_search_details() resource to get data about all flights with searc id {search_id} 
-        best flights: 
-            - choose best flight options from the available flight list
-            - select top 3 - 5 flight list
-            - consider flight price to value ratio
+def flight_comparison_promtp(search_id: str) -> str:
+    return (
+        f"Compare the saved flight search {search_id}. Use the flight details "
+        "and price filter tools as appropriate. Summarize price, schedule, "
+        "stops, and important trade-offs without inventing missing details."
+    )
 
-        flight price comparison:
-            - get flight price comparison across all available list of flights
-            - consider departure and arrival time convenience
-            
-        flight suggestion: 
-            - use filter_by_price to choose budget friendly price if asked
-            - prefer direct flights over connections
-
-        decision recommendation:
-            - suggest 3-5 top flights with these considerations and suitable for user
-
-        please format output in clean, structured and easy to read for user.
-
-    """
-
-    return prompt
 
 if __name__ == "__main__":
-    mcp.run(transport = "stdio")
+    mcp.run(transport="stdio")

@@ -1,62 +1,70 @@
-# server to handle weather information and alerts related requests
-# support forecast upto 15 days
-# API using here: https://geocoding-api.open-meteo.com
-
-import os
-WEATHER_DIR = os.path.dirname(os.path.abspath(__file__))
-import requests
 import json
-from datetime import datetime, date
+import logging
+import os
+from datetime import date, datetime
 from statistics import mean
-from typing import Dict, Any
+from typing import Any, Dict
+
+import requests
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+from utils import (
+    HTTP_SESSION,
+    get_data_dir,
+    get_request_timeout,
+    get_search_file,
+    make_search_id,
+    parse_iso_date,
+    require_text,
+)
+
+load_dotenv()
+logger = logging.getLogger(__name__)
 mcp = FastMCP("weather-server")
+WEATHER_DIR = get_data_dir("weather")
+FORECAST_DAYS = 15
 
-def get_coordinates(place: str):
 
-    url = "https://geocoding-api.open-meteo.com/v1/search"
-    params = {"name": place, "count": 1}
-
-    response = requests.get(url, params=params)
+def get_coordinates(place: str) -> dict:
+    place = require_text(place, "place")
+    response = HTTP_SESSION.get(
+        "https://geocoding-api.open-meteo.com/v1/search",
+        params={"name": place, "count": 1},
+        timeout=get_request_timeout(),
+    )
     response.raise_for_status()
-
     data = response.json()
-
-    if not data.get("results"):
+    if not isinstance(data, dict):
+        raise ValueError("Geocoding provider returned an invalid response")
+    results = data.get("results") or []
+    if not results:
         raise ValueError(f"Location not found: {place}")
-
-    result = data["results"][0]
-
+    result = results[0]
     return {
         "latitude": result["latitude"],
         "longitude": result["longitude"],
         "resolved_name": result.get("name", place),
         "admin1": result.get("admin1", ""),
-        "country": result.get("country", "")
+        "country": result.get("country", ""),
     }
 
 
-    
-def analyze_hourly(hourly: dict, target_date: str):
+def analyze_hourly(hourly: dict, target_date: str) -> dict:
+    rain = hourly.get("rain") or []
+    cloudcover = hourly.get("cloudcover") or []
+    humidity = hourly.get("relativehumidity_2m") or []
+    wind = hourly.get("windspeed_10m") or []
 
-    rain = hourly.get("rain", [])  
-    cloudcover = hourly.get("cloudcover", [])
-    humidity = hourly.get("relativehumidity_2m", [])
-    wind = hourly.get("windspeed_10m", [])
-
-    rainy_hours = sum(1 for p in rain if p > 0)
-    rain_probability = (rainy_hours / 24) * 100 if rain else 0
-    total_rain = sum(rain) if rain else 0
-
+    rainy_hours = sum(1 for amount in rain if amount > 0)
+    rain_probability = (rainy_hours / len(rain)) * 100 if rain else 0
+    total_rain = sum(rain)
     avg_cloud = mean(cloudcover) if cloudcover else 0
     avg_humidity = mean(humidity) if humidity else 0
     max_wind = max(wind) if wind else 0
 
-     # I have decided below values as per google search recommendation 
-
     thunderstorm = "Low"
-    if avg_cloud > 70 and avg_humidity > 60: 
+    if avg_cloud > 70 and avg_humidity > 60:
         thunderstorm = "Moderate"
     if avg_humidity > 70 and max_wind > 30:
         thunderstorm = "High"
@@ -68,125 +76,108 @@ def analyze_hourly(hourly: dict, target_date: str):
         "average_cloud_cover_percent": round(avg_cloud, 1),
         "average_humidity_percent": round(avg_humidity, 1),
         "max_wind_speed_kmh": max_wind,
-        "thunderstorm_likelihood": thunderstorm
+        "thunderstorm_likelihood": thunderstorm,
     }
 
 
 @mcp.tool()
 def get_weather(place: str, target_date: str) -> Dict[str, Any]:
-    """
-    Use this tool whenever user asks about weather
-    for a specific place and date.
-
-    - Forecast supported up to 15 days ahead.
-    - Historical supported for past dates.
-    """
-
+    """Return a forecast up to 15 days ahead or historical weather for a date."""
     try:
-        geo = get_coordinates(place)
-
-        lat = geo["latitude"]
-        lon = geo["longitude"]
-        resolved_name = geo["resolved_name"]
-        admin1 = geo["admin1"]
-        country = geo["country"]
-
+        place = require_text(place, "place")
+        requested_date = parse_iso_date(target_date, "target_date")
         today = date.today()
-        requested_date = datetime.strptime(target_date, "%Y-%m-%d").date()
-
-        if requested_date > today:
-            delta = (requested_date - today).days
-            if delta > 15:
-                return {
-                    "error": "Forecast available only up to 15 days ahead."
-                }
-            url = "https://api.open-meteo.com/v1/forecast"
-        else:
-            url = "https://archive-api.open-meteo.com/v1/archive"
-
+        if (requested_date - today).days > FORECAST_DAYS:
+            raise ValueError("Forecast available only up to 15 days ahead")
+        geo = get_coordinates(place)
+        endpoint = (
+            "https://api.open-meteo.com/v1/forecast"
+            if requested_date >= today
+            else "https://archive-api.open-meteo.com/v1/archive"
+        )
         params = {
-            "latitude": lat,
-            "longitude": lon,
-            "start_date": target_date,
-            "end_date": target_date,
+            "latitude": geo["latitude"],
+            "longitude": geo["longitude"],
+            "start_date": requested_date.isoformat(),
+            "end_date": requested_date.isoformat(),
             "hourly": "rain,cloudcover,relativehumidity_2m,windspeed_10m",
-            "timezone": "auto"
+            "timezone": "auto",
         }
-
-        response = requests.get(url, params=params)
+        response = HTTP_SESSION.get(
+            endpoint, params=params, timeout=get_request_timeout()
+        )
         response.raise_for_status()
-
         data = response.json()
-        hourly = data.get("hourly", {})
+        if not isinstance(data, dict):
+            raise ValueError("Weather provider returned an invalid response")
+        hourly = data.get("hourly")
+        if not isinstance(hourly, dict):
+            raise ValueError("Weather provider returned no hourly data")
 
-        summary = analyze_hourly(hourly, target_date)
-
-        # Save raw data
+        summary = analyze_hourly(hourly, requested_date.isoformat())
+        search_id = make_search_id(
+            geo["resolved_name"],
+            requested_date.isoformat(),
+            datetime.now().strftime("%Y%m%d_%H%M%S_%f"),
+        )
         os.makedirs(WEATHER_DIR, exist_ok=True)
+        with get_search_file(WEATHER_DIR, search_id).open(
+            "w", encoding="utf-8"
+        ) as file:
+            json.dump(data, file, indent=2)
 
-        search_id = f"{resolved_name}_{target_date}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        file_path = os.path.join(WEATHER_DIR, f"{search_id}.json")
-
-        with open(file_path, "w") as f:
-            json.dump(data, f, indent=2)
-
-        summary.update({
-            "search_id": search_id,
-            "location": resolved_name,
-            "state_or_region": admin1,
-            "country": country,
-            "coordinates": {
-                "latitude": lat,
-                "longitude": lon
+        summary.update(
+            {
+                "search_id": search_id,
+                "location": geo["resolved_name"],
+                "state_or_region": geo["admin1"],
+                "country": geo["country"],
+                "coordinates": {
+                    "latitude": geo["latitude"],
+                    "longitude": geo["longitude"],
+                },
             }
-        })
-
+        )
         return summary
-
-    except Exception as e:
-        return {"error": str(e)}
+    except requests.RequestException as exc:
+        logger.warning("Weather provider request failed (%s)", type(exc).__name__)
+        return {"error": "Weather provider request failed; please retry shortly"}
+    except (ValueError, TypeError, KeyError, OSError) as exc:
+        logger.warning("Weather request rejected or could not be saved: %s", exc)
+        return {"error": str(exc)}
 
 
 @mcp.tool()
 def get_weather_details(search_id: str) -> str:
-
-    file_path = os.path.join(WEATHER_DIR, f"{search_id}.json")
-
-    if not os.path.exists(file_path):
-        return f"No weather record found for {search_id}"
-
-    with open(file_path, "r") as f:
-        return json.dumps(json.load(f), indent=2)
-
+    """Return the saved raw weather response as JSON."""
+    try:
+        path = get_search_file(WEATHER_DIR, search_id)
+        with path.open(encoding="utf-8") as file:
+            return json.dumps(json.load(file), indent=2)
+    except (ValueError, FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        return f"Unable to read weather search: {exc}"
 
 
 @mcp.resource("weather://searches")
 def list_weather_searches() -> str:
-
-    if not os.path.exists(WEATHER_DIR):
+    """List IDs of saved weather searches."""
+    if not os.path.isdir(WEATHER_DIR):
         return "No weather searches found."
-
-    files = [f[:-5] for f in os.listdir(WEATHER_DIR) if f.endswith(".json")]
-
-    if not files:
-        return "No weather searches found."
-
-    return "Saved Weather Searches:\n\n" + "\n".join(files)
+    searches = sorted(
+        filename[:-5]
+        for filename in os.listdir(WEATHER_DIR)
+        if filename.endswith(".json")
+    )
+    return json.dumps(searches, indent=2) if searches else "No weather searches found."
 
 
 @mcp.prompt()
 def weather_analysis_prompt(destination: str, travel_date: str) -> str:
-
-    return f"""
-    You must use get_weather tool first.
-
-    Analyze weather for {destination} on {travel_date}.
-    Provide:
-    - Rain probability
-    - Thunderstorm likelihood
-    - Wind & humidity comfort
-    - Travel advice
-    """
+    return (
+        f"Check the weather for {destination} on {travel_date}. Report the "
+        "provider forecast, precipitation, wind, and humidity. Identify the "
+        "thunderstorm value as a rough heuristic rather than an official warning."
+    )
 
 
 if __name__ == "__main__":
