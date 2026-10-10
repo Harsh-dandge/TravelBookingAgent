@@ -3,18 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Travel Assistant - AI-Powered Trip Planner</title>
+    <title>Travel Booking Agent - Travel Search</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
 </head>
 <body>
     <div class="container">
         <!-- Header -->
         <header class="header">
             <div class="header-content">
-                <h1>✈️ Travel Assistant</h1>
-                <p>AI-Powered Travel Planning with MCP Servers</p>
-                <span class="badge">Live Demo</span>
+                <h1>✈️ Travel Booking Agent</h1>
+                <p>Search flights, hotels, events, and travel weather</p>
+                <span class="badge">Live travel search</span>
             </div>
         </header>
 
@@ -41,45 +40,34 @@
                 <h2>Search Flights</h2>
                 <form class="search-form" onsubmit="searchFlights(event)">
                     <div class="form-group">
-                        <label>From (City Code)</label>
-                        <input type="text" placeholder="e.g., PNQ" value="PNQ" required>
+                        <label for="flight-departure">From (City Code)</label>
+                        <input id="flight-departure" name="departure" type="text" placeholder="e.g., PNQ" value="PNQ" maxlength="8" required>
                     </div>
                     <div class="form-group">
-                        <label>To (City Code)</label>
-                        <input type="text" placeholder="e.g., JAI" value="JAI" required>
+                        <label for="flight-arrival">To (City Code)</label>
+                        <input id="flight-arrival" name="arrival" type="text" placeholder="e.g., JAI" value="JAI" maxlength="8" required>
                     </div>
                     <div class="form-group">
-                        <label>Departure Date</label>
-                        <input type="date" id="flight-date" required>
+                        <label for="flight-date">Departure Date</label>
+                        <input type="date" id="flight-date" name="date" required>
                     </div>
                     <div class="form-group">
-                        <label>Return Date (Optional)</label>
-                        <input type="date" id="flight-return">
+                        <label for="flight-return">Return Date (Optional)</label>
+                        <input type="date" id="flight-return" name="return_date">
+                    </div>
+                    <div class="form-group">
+                        <label for="flight-adults">Adults</label>
+                        <input id="flight-adults" name="adults" type="number" min="1" max="9" value="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="flight-children">Children</label>
+                        <input id="flight-children" name="children" type="number" min="0" max="9" value="0" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Search Flights</button>
                 </form>
 
-                <div id="flights-result" class="results">
-                    <div class="flight-card">
-                        <div class="flight-info">
-                            <h3>IndiGo</h3>
-                            <p>₹8,718</p>
-                        </div>
-                        <div class="flight-details">
-                            <span>2h 30m</span>
-                            <span>Non-Stop</span>
-                        </div>
-                    </div>
-                    <div class="flight-card">
-                        <div class="flight-info">
-                            <h3>Air India</h3>
-                            <p>₹9,245</p>
-                        </div>
-                        <div class="flight-details">
-                            <span>3h 15m</span>
-                            <span>Non-Stop</span>
-                        </div>
-                    </div>
+                <div id="flights-result" class="results" aria-live="polite">
+                    <p>Search to see current flight options.</p>
                 </div>
             </section>
 
@@ -88,39 +76,26 @@
                 <h2>Find Hotels</h2>
                 <form class="search-form" onsubmit="searchHotels(event)">
                     <div class="form-group">
-                        <label>Location</label>
-                        <input type="text" placeholder="e.g., Jaipur" value="Jaipur" required>
+                        <label for="hotel-location">Location</label>
+                        <input id="hotel-location" name="location" type="text" placeholder="e.g., Jaipur" value="Jaipur" required>
                     </div>
                     <div class="form-group">
-                        <label>Check-in</label>
-                        <input type="date" id="hotel-checkin" required>
+                        <label for="hotel-checkin">Check-in</label>
+                        <input type="date" id="hotel-checkin" name="check_in" required>
                     </div>
                     <div class="form-group">
-                        <label>Check-out</label>
-                        <input type="date" id="hotel-checkout" required>
+                        <label for="hotel-checkout">Check-out</label>
+                        <input type="date" id="hotel-checkout" name="check_out" required>
                     </div>
                     <div class="form-group">
-                        <label>Guests</label>
-                        <input type="number" min="1" value="2">
+                        <label for="hotel-guests">Guests</label>
+                        <input id="hotel-guests" name="guests" type="number" min="1" max="30" value="2" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Search Hotels</button>
                 </form>
 
-                <div id="hotels-result" class="results">
-                    <div class="hotel-card">
-                        <div class="hotel-rating">★★★★★ 4.8</div>
-                        <h3>Taj Hotel</h3>
-                        <p class="price">₹8,500/night</p>
-                        <p class="reviews">2,450 reviews</p>
-                        <button class="btn btn-secondary">Book Now</button>
-                    </div>
-                    <div class="hotel-card">
-                        <div class="hotel-rating">★★★★☆ 4.6</div>
-                        <h3>ITC Hotel</h3>
-                        <p class="price">₹6,200/night</p>
-                        <p class="reviews">1,890 reviews</p>
-                        <button class="btn btn-secondary">Book Now</button>
-                    </div>
+                <div id="hotels-result" class="results" aria-live="polite">
+                    <p>Search to compare current hotel options. Bookings are completed with the provider.</p>
                 </div>
             </section>
 
@@ -129,29 +104,18 @@
                 <h2>Discover Events</h2>
                 <form class="search-form" onsubmit="searchEvents(event)">
                     <div class="form-group">
-                        <label>Event Type</label>
-                        <input type="text" placeholder="e.g., Concerts" value="Concerts" required>
+                        <label for="event-type">Event Type</label>
+                        <input id="event-type" name="event_type" type="text" placeholder="e.g., Concerts" value="Concerts" required>
                     </div>
                     <div class="form-group">
-                        <label>Location</label>
-                        <input type="text" placeholder="e.g., Jaipur" value="Jaipur" required>
+                        <label for="event-location">Location</label>
+                        <input id="event-location" name="location" type="text" placeholder="e.g., Jaipur" value="Jaipur" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Search Events</button>
                 </form>
 
-                <div id="events-result" class="results">
-                    <div class="event-card">
-                        <h3>Jazz Festival</h3>
-                        <p class="event-date">📅 April 15, 2026</p>
-                        <p class="event-location">📍 Jaipur</p>
-                        <button class="btn btn-secondary">Get Tickets</button>
-                    </div>
-                    <div class="event-card">
-                        <h3>Art Exhibition</h3>
-                        <p class="event-date">📅 April 20, 2026</p>
-                        <p class="event-location">📍 Jaipur</p>
-                        <button class="btn btn-secondary">Get Tickets</button>
-                    </div>
+                <div id="events-result" class="results" aria-live="polite">
+                    <p>Search to discover current local events.</p>
                 </div>
             </section>
 
@@ -160,28 +124,14 @@
                 <h2>Weather Forecast</h2>
                 <form class="search-form" onsubmit="searchWeather(event)">
                     <div class="form-group">
-                        <label>Location</label>
-                        <input type="text" placeholder="e.g., Jaipur" value="Jaipur" required>
+                        <label for="weather-location">Location</label>
+                        <input id="weather-location" name="location" type="text" placeholder="e.g., Jaipur" value="Jaipur" required>
                     </div>
                     <button type="submit" class="btn btn-primary">Get Forecast</button>
                 </form>
 
-                <div id="weather-result" class="results weather-grid">
-                    <div class="weather-card">
-                        <p class="weather-date">Today</p>
-                        <p class="weather-temp">33°C</p>
-                        <p class="weather-desc">Sunny</p>
-                    </div>
-                    <div class="weather-card">
-                        <p class="weather-date">Tomorrow</p>
-                        <p class="weather-temp">32°C</p>
-                        <p class="weather-desc">Partly Cloudy</p>
-                    </div>
-                    <div class="weather-card">
-                        <p class="weather-date">Next Day</p>
-                        <p class="weather-temp">31°C</p>
-                        <p class="weather-desc">Sunny</p>
-                    </div>
+                <div id="weather-result" class="results weather-grid" aria-live="polite">
+                    <p>Search for a location to see the five-day forecast.</p>
                 </div>
             </section>
         </main>
@@ -197,19 +147,15 @@
                 <div class="arrow">→</div>
                 <div class="arch-box">
                     <h3>API Layer</h3>
-                    <p>REST Endpoints</p>
-                </div>
-                <div class="arrow">→</div>
-                <div class="arch-box">
-                    <h3>MCP Servers</h3>
-                    <p>4 Microservices</p>
+                    <p>REST API</p>
                 </div>
                 <div class="arrow">→</div>
                 <div class="arch-box">
                     <h3>External APIs</h3>
-                    <p>SerpAPI, Open-Meteo</p>
+                    <p>SerpAPI and Open-Meteo</p>
                 </div>
             </div>
+            <p>MCP servers are also available as separate stdio integrations for compatible clients.</p>
         </section>
 
         <!-- Features Section -->
@@ -221,8 +167,8 @@
                     <p>Real-time flight prices and availability using Google Flights</p>
                 </div>
                 <div class="feature">
-                    <h3>🏨 Hotel Booking</h3>
-                    <p>Find and compare hotels with ratings and reviews</p>
+                    <h3>🏨 Hotel Search</h3>
+                    <p>Compare hotel prices, ratings, and reviews</p>
                 </div>
                 <div class="feature">
                     <h3>🎉 Event Discovery</h3>
@@ -230,11 +176,11 @@
                 </div>
                 <div class="feature">
                     <h3>🌦️ Weather Forecast</h3>
-                    <p>15-day weather forecast for travel planning</p>
+                    <p>Five-day weather forecast for travel planning</p>
                 </div>
                 <div class="feature">
                     <h3>🤖 AI Integration</h3>
-                    <p>Model Context Protocol (MCP) for LLM integration</p>
+                    <p>Model Context Protocol tools for compatible AI clients</p>
                 </div>
                 <div class="feature">
                     <h3>📊 Smart Analytics</h3>
@@ -245,7 +191,7 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <p>Travel Assistant © 2026 | Powered by MCP Servers</p>
+            <p>Travel Booking Agent | Search results are provided by third parties.</p>
             <div class="tech-stack">
                 <span>Python</span> • <span>Flask</span> • <span>MCP</span> • <span>SerpAPI</span> • <span>Open-Meteo</span>
             </div>
