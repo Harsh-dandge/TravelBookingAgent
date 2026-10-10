@@ -1,125 +1,125 @@
+<div align="center">
+
 # Travel Booking Agent
 
-A Python travel-planning project with a Flask web interface and four
-Model Context Protocol (MCP) servers. Search flights, hotels, and events
-through SerpAPI, or retrieve weather forecasts from Open-Meteo.
+**One place to explore flights, stays, events, and weather for a trip.**
 
-Search results are informational. The application does not book or purchase
-travel products.
+Built with Flask, Python, and the Model Context Protocol (MCP).
 
-## Features
+[Features](#what-you-can-do) · [Quick start](#quick-start) ·
+[API](#web-api) · [MCP tools](#mcp-servers) ·
+[Configuration](#configuration) · [Tests](#tests)
 
-- Flight search with passenger, cabin, route, and date validation.
-- Hotel search with price, rating, and amenity filters.
-- Event discovery with date filtering.
-- Weather lookup for forecasts up to 15 days ahead and historical dates.
-- Web search forms backed by live provider APIs, with readable errors.
-- MCP tools, resources, and planning prompts for compatible MCP clients.
-- Bounded HTTP timeouts, retries for transient GET failures, and local result
-  storage for subsequent filtering.
+</div>
 
-SerpAPI requires a user-provided key for flight, hotel, and event searches.
-Open-Meteo weather and geocoding do not require an API key.
+> **What this project does:** It searches and compares travel information.
+> It does not make bookings, take payments, or guarantee third-party results.
 
-## Architecture
+## What you can do
+
+| Search | Information |
+| --- | --- |
+| Flights | Search routes and dates, compare prices, schedules, and stops. |
+| Hotels | Find stays and narrow results by price, rating, and amenities. |
+| Events | Discover events by interest and location, then filter by date. |
+| Weather | Check a five-day web forecast or use the MCP tool for a specific date. |
+
+The browser app provides a simple search interface. The MCP servers expose
+tools, resources, and prompts for MCP-compatible AI clients. The application
+does **not** include an LLM or autonomous booking agent: the connected client
+decides when to call MCP tools and how to present their results.
+
+## How it works
 
 ```text
-Browser ──> Flask REST API ──> SerpAPI (flights, hotels, events)
-                         └──> Open-Meteo (weather, geocoding)
+Browser
+   │
+   ▼
+Flask web app ──────► SerpAPI ──► Flights, hotels, and events
+       │
+       └────────────► Open-Meteo ──► Geocoding and weather
 
-MCP client ──> flight / hotel / event / weather servers (stdio)
+MCP-compatible client ──stdio──► Flight / hotel / event / weather servers
+                                      │
+                                      └──► The same provider APIs
 ```
 
-The web app calls provider APIs directly. MCP servers are separate
-stdio-based integrations; they do not listen on ports. Each server can be
-configured as its own MCP client process.
+The Flask app makes provider requests directly. Each MCP server is a separate
+stdio process; the MCP servers do not run on HTTP ports. MCP search results
+are saved locally so tools can retrieve or filter them later.
 
-## Tech stack
+## Quick start
 
-- Python 3.10+
-- Flask
-- MCP Python SDK (FastMCP)
-- Requests and python-dotenv
-- SerpAPI
-- Open-Meteo
-- HTML, CSS, and vanilla JavaScript
+### 1. Install
 
-## Setup
+You need Python 3.10 or newer and pip.
 
-1. Create and activate a virtual environment:
+**Windows PowerShell**
 
-   **Windows PowerShell**
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+```
 
-   ```powershell
-   py -3 -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   ```
+**macOS / Linux**
 
-   **macOS / Linux**
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+```
 
-   ```sh
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
+### 2. Add your SerpAPI key
 
-2. Install dependencies:
+Open `.env` and replace the placeholder value:
 
-   ```sh
-   python -m pip install -r requirements.txt
-   ```
+```dotenv
+SERPAPI_KEY=your_serpapi_key_here
+```
 
-3. Create a local environment file and add your SerpAPI key:
+SerpAPI is needed for flight, hotel, and event searches. Weather uses
+Open-Meteo and works without a key. Keep `.env` private; it is ignored by Git.
 
-   ```powershell
-   Copy-Item .env.example .env
-   ```
+### 3. Run the app
 
-   Edit `.env` and set `SERPAPI_KEY`. Do not commit this file.
+```sh
+python demo_app.py
+```
 
-4. Start the web interface:
+Visit <http://127.0.0.1:5000>. The development server binds to localhost by
+default. Use the form tabs to search, and check provider availability before
+relying on any result.
 
-   ```sh
-   python demo_app.py
-   ```
+## Web API
 
-   Open <http://127.0.0.1:5000>. Weather search works without a SerpAPI key.
-   Searches involving SerpAPI return a configuration error until a key is set.
+The web interface calls these JSON endpoints:
 
-## Usage
+| Method and path | Required JSON fields | Purpose |
+| --- | --- | --- |
+| `POST /api/flights` | `departure`, `arrival`, `date`; optional `return_date`, `adults`, `children` | Search flight options. |
+| `POST /api/hotels` | `location`, `check_in`, `check_out`; optional `guests` | Search hotel options. |
+| `POST /api/events` | `event_type`, `location` | Find local events. |
+| `POST /api/weather` | `location` | Get a five-day forecast. |
+| `GET /api/health` | — | Check whether the web app is running. |
 
-Use the browser forms to search. The REST API can also be called directly:
+Dates use `YYYY-MM-DD`. For example, search flights with:
 
 ```sh
 curl -X POST http://127.0.0.1:5000/api/flights \
   -H "Content-Type: application/json" \
-  -d '{"departure":"PNQ","arrival":"JAI","date":"2026-11-01","return_date":"2026-11-05","adults":1,"children":0}'
+  -d '{"departure":"PNQ","arrival":"JAI","date":"2030-11-01","return_date":"2030-11-05","adults":1,"children":0}'
 ```
 
-```sh
-curl -X POST http://127.0.0.1:5000/api/hotels \
-  -H "Content-Type: application/json" \
-  -d '{"location":"Jaipur","check_in":"2026-11-01","check_out":"2026-11-04","guests":2}'
-```
+Successful searches return JSON with `success: true` and a result list.
+Validation failures return a clear message; provider failures return an
+error response rather than fabricated example results.
 
-```sh
-curl -X POST http://127.0.0.1:5000/api/events \
-  -H "Content-Type: application/json" \
-  -d '{"event_type":"Concerts","location":"Jaipur"}'
-```
+## MCP servers
 
-```sh
-curl -X POST http://127.0.0.1:5000/api/weather \
-  -H "Content-Type: application/json" \
-  -d '{"location":"Jaipur"}'
-```
-
-Dates must be in `YYYY-MM-DD` format. Flight routes use airport or supported
-city codes. Search results can change and should be verified with the booking
-provider before making travel decisions.
-
-### MCP servers
-
-Run a server as a stdio process from the repository root:
+From the repository root, launch the server you want to connect:
 
 ```sh
 python servers/flight_server/flight_server.py
@@ -128,64 +128,76 @@ python servers/event_server/event_server.py
 python servers/weather_server/weather_server.py
 ```
 
-Configure one process per server in your MCP client. Provide `SERPAPI_KEY`
-through that client's environment for the flight, hotel, and event servers.
-The weather server uses Open-Meteo and needs no key. See the server source for
-available MCP tools, resources, and prompts.
+Configure each command as a separate stdio server in your MCP client. The
+flight, hotel, and event servers need `SERPAPI_KEY` in the process environment.
+The weather server does not. Available tools include flight search and price
+filtering, hotel search and filters, event search and date filtering, and
+weather lookup. The servers also expose saved-search resources and planning
+prompts.
 
-## Environment variables
+## Configuration
 
-| Variable | Required | Default | Description |
-| --- | --- | --- | --- |
-| `SERPAPI_KEY` | For SerpAPI searches | — | SerpAPI account key; never commit it. |
-| `REQUEST_TIMEOUT_SECONDS` | No | `15` | Positive HTTP timeout in seconds. |
-| `TRAVEL_DATA_DIR` | No | `.travel_data` | Directory for saved MCP search results. |
-| `FLASK_HOST` | No | `127.0.0.1` | Web server bind address. |
-| `FLASK_PORT` | No | `5000` | Web server port. |
-| `FLASK_DEBUG` | No | `false` | Enable Flask debug mode only for local development. |
-| `LOG_LEVEL` | No | `INFO` | Python logging level. |
+Set variables in `.env` for the Flask app, or in the process environment when
+launching an MCP server.
+
+| Variable | Default | What it controls |
+| --- | --- | --- |
+| `SERPAPI_KEY` | — | SerpAPI authentication for flights, hotels, and events. |
+| `REQUEST_TIMEOUT_SECONDS` | `15` | HTTP request timeout; must be positive. |
+| `TRAVEL_DATA_DIR` | `.travel_data` | Root folder for saved MCP search results. |
+| `FLASK_HOST` | `127.0.0.1` | Address the web app listens on. |
+| `FLASK_PORT` | `5000` | Web app port. |
+| `FLASK_DEBUG` | `false` | Flask debug mode; keep off outside local development. |
+| `LOG_LEVEL` | `INFO` | Application log level. |
 
 ## Tests
 
-The automated suite uses the standard library and mocked provider responses;
-it does not make paid or external API requests.
+The automated tests use mocked provider responses, so they do not need an API
+key, internet access, paid requests, or a separate test framework.
 
 ```sh
 python -m unittest discover -s tests -v
 ```
 
-Live provider availability and credentials are not required to run the tests.
+The suite covers API routes, validation, MCP search/filter flows, safe search
+IDs, utility functions, and SQLite schema initialization.
 
-## Project structure
+## Project layout
 
 ```text
 .
-├── database/                 # SQLite schema initialization
+├── database/                 # SQLite schema initialization helper
+├── docs/                     # Project and interview documentation
 ├── servers/
-│   ├── event_server/         # Event MCP tools
-│   ├── flight_server/        # Flight MCP tools
-│   ├── hotel_server/         # Hotel MCP tools and filters
-│   └── weather_server/       # Weather and geocoding MCP tools
-├── static/                   # Web UI styles and JavaScript
-├── templates/                # Flask HTML template
-├── tests/                    # Offline unit and integration tests
-├── demo_app.py               # Flask web application
-├── utils.py                  # Shared validation, HTTP, and storage helpers
-├── requirements.txt
-└── .env.example
+│   ├── event_server/         # Event search MCP server
+│   ├── flight_server/        # Flight search MCP server
+│   ├── hotel_server/         # Hotel search and filtering MCP server
+│   └── weather_server/       # Weather and geocoding MCP server
+├── static/                   # Browser JavaScript and styles
+├── templates/                # Flask page template
+├── tests/                    # Offline automated tests
+├── demo_app.py               # Flask app and web API
+├── utils.py                  # Shared configuration, HTTP, and validation
+├── requirements.txt          # Python dependencies
+└── .env.example              # Safe environment-variable template
 ```
 
-## Security and limitations
+## Important limitations
 
-- Keep API keys in environment variables or a local `.env` file.
-- Search inputs and saved-search IDs are validated; HTTP calls use timeouts
-  and retry only transient GET failures.
-- The development web app has no authentication or CSRF protection. Keep it
-  bound to localhost; do not expose it directly to the public internet.
-- Flight, hotel, event, and weather content comes from third parties and may
-  be incomplete or stale. The thunderstorm estimate is a rough heuristic, not
-  an official warning.
+- This is a travel **search** demo, not a booking or payment system.
+- Search results are supplied by third parties, can be incomplete or stale,
+  and should be checked with the provider.
+- The web app has no login, CSRF protection, or production deployment setup.
+  Keep it on localhost unless you add and review those protections.
+- The weather MCP tool's thunderstorm likelihood is a simple heuristic, not
+  an official forecast or safety warning.
 
 ## License
 
-This project is distributed under the MIT License. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
+
+## Interview preparation
+
+Preparing for an interview about this project? Start with
+[Interview Prep](docs/INTERVIEW_PREP.md) for a short project pitch, architecture
+walkthrough, likely questions, and honest limitations.
