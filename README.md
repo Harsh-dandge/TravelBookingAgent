@@ -201,3 +201,6 @@ MIT. See [LICENSE](LICENSE).
 Preparing for an interview about this project? Start with
 [Interview Prep](docs/INTERVIEW_PREP.md) for a short project pitch, architecture
 walkthrough, likely questions, and honest limitations.
+
+Manual account and deployment tasks are listed in
+[Manual Follow-up](docs/MANUAL_FOLLOW_UP.md).
